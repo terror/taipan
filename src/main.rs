@@ -1,6 +1,8 @@
 use {
   ruff_python_ast::ModModule,
   ruff_python_parser::{Mode, ParseError, Parsed, parse},
+  std::process,
+  taipan::{Compiler, Vm},
 };
 
 fn parse_module(source: &str) -> Result<Parsed<ModModule>, ParseError> {
@@ -13,18 +15,33 @@ fn parse_module(source: &str) -> Result<Parsed<ModModule>, ParseError> {
 
 fn main() {
   let source = r#"
-def hello(name):
-    print(f"Hello, {name}!")
+x = 1 + 2
+print(x)
 
-hello("world")
+def greet(name):
+    return "Hello, " + name
+
+print(greet("world"))
 "#;
 
-  match parse_module(source) {
-    Ok(parsed) => {
-      println!("{:#?}", parsed.syntax());
-    }
+  let parsed = match parse_module(source) {
+    Ok(parsed) => parsed,
     Err(error) => {
-      eprintln!("error: {error}");
+      eprintln!("SyntaxError: {error}");
+      process::exit(1);
     }
+  };
+
+  let code = match Compiler::compile(parsed.syntax()) {
+    Ok(code) => code,
+    Err(error) => {
+      eprintln!("{error}");
+      process::exit(1);
+    }
+  };
+
+  if let Err(error) = Vm::run(code) {
+    eprintln!("{error}");
+    process::exit(1);
   }
 }

@@ -10,6 +10,14 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
 [lints.clippy]
 all = { level = "deny", priority = -1 }
 arbitrary-source-item-ordering = "deny"
+cast-possible-truncation = "allow"
+cast-precision-loss = "allow"
+cast-possible-wrap = "allow"
+cast-sign-loss = "allow"
+missing-errors-doc = "allow"
+missing-panics-doc = "allow"
+must-use-candidate = "allow"
+return-self-not-must-use = "allow"
 enum_glob_use = "allow"
 ignore_without_reason = "allow"
 needless_pass_by_value = "allow"

@@ -1,0 +1,36 @@
+#[allow(unused_imports)]
+use super::*;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Op {
+  BinaryAdd,
+  BinaryDiv,
+  BinaryFloorDiv,
+  BinaryMod,
+  BinaryMul,
+  BinaryPow,
+  BinarySub,
+  BuildString(u16),
+  CallFunction(u8),
+  CompareEq,
+  CompareGe,
+  CompareGt,
+  CompareLe,
+  CompareLt,
+  CompareNe,
+  Dup,
+  Jump(u16),
+  LoadConst(u16),
+  LoadFast(u16),
+  LoadName(u16),
+  MakeFunction(u16),
+  Pop,
+  PopJumpIfFalse(u16),
+  PopJumpIfTrue(u16),
+  Return,
+  StoreFast(u16),
+  StoreName(u16),
+  UnaryNeg,
+  UnaryNot,
+  UnaryPos,
+}
