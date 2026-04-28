@@ -1,43 +1,26 @@
 use super::*;
 
-#[derive(Debug)]
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub))]
 pub enum Error {
-  Compile(String),
-  NameError(String),
+  #[snafu(display("CompileError: {message}"))]
+  Compile { message: String },
+  #[snafu(display("NameError: name '{name}' is not defined"))]
+  NameError { name: String },
+  #[snafu(display("OverflowError: integer overflow"))]
   Overflow,
-  Parse(ParseError),
-  TypeError(String),
-  UnboundLocal(String),
-  UnsupportedSyntax(String),
+  #[snafu(display("SyntaxError: {source}"))]
+  Parse { source: ParseError },
+  #[snafu(display("TypeError: {message}"))]
+  TypeError { message: String },
+  #[snafu(display("UnboundLocalError: cannot access local variable '{name}'"))]
+  UnboundLocal { name: String },
+  #[snafu(display("UnsupportedSyntax: {message}"))]
+  UnsupportedSyntax { message: String },
 }
-
-impl Display for Error {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    match self {
-      Self::Compile(message) => write!(f, "CompileError: {message}"),
-      Self::NameError(name) => {
-        write!(f, "NameError: name '{name}' is not defined")
-      }
-      Self::Overflow => write!(f, "OverflowError: integer overflow"),
-      Self::Parse(error) => write!(f, "SyntaxError: {error}"),
-      Self::TypeError(message) => write!(f, "TypeError: {message}"),
-      Self::UnboundLocal(name) => {
-        write!(
-          f,
-          "UnboundLocalError: cannot access local variable '{name}'"
-        )
-      }
-      Self::UnsupportedSyntax(message) => {
-        write!(f, "UnsupportedSyntax: {message}")
-      }
-    }
-  }
-}
-
-impl std::error::Error for Error {}
 
 impl From<ParseError> for Error {
   fn from(error: ParseError) -> Self {
-    Self::Parse(error)
+    Self::Parse { source: error }
   }
 }

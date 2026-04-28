@@ -50,10 +50,9 @@ impl<W: Write> Machine<W> {
         code,
       } => {
         if params.len() != argc {
-          return Err(Error::TypeError(format!(
-            "expected {} arguments, got {argc}",
-            params.len()
-          )));
+          return Err(Error::TypeError {
+            message: format!("expected {} arguments, got {argc}", params.len()),
+          });
         }
         let mut locals = vec![None; code.locals.len()];
         for (i, arg) in args.into_iter().enumerate() {
@@ -77,10 +76,9 @@ impl<W: Write> Machine<W> {
         }
       }
       _ => {
-        return Err(Error::TypeError(format!(
-          "'{}' object is not callable",
-          func.type_name()
-        )));
+        return Err(Error::TypeError {
+          message: format!("'{}' object is not callable", func.type_name()),
+        });
       }
     }
 
@@ -207,7 +205,9 @@ impl<W: Write> Machine<W> {
         Op::LoadFast(idx) => {
           let frame = self.frames.last_mut().unwrap();
           let val = frame.locals[idx as usize].clone().ok_or_else(|| {
-            Error::UnboundLocal(frame.code.locals[idx as usize].clone())
+            Error::UnboundLocal {
+              name: frame.code.locals[idx as usize].clone(),
+            }
           })?;
           frame.stack.push(val);
         }
@@ -217,7 +217,7 @@ impl<W: Write> Machine<W> {
           let val = self
             .globals
             .get(&name)
-            .ok_or(Error::NameError(name))?
+            .ok_or(Error::NameError { name })?
             .clone();
           self.frames.last_mut().unwrap().stack.push(val);
         }
@@ -290,34 +290,43 @@ impl<W: Write> Machine<W> {
 
 fn builtin_int(args: &[Object]) -> Result<Object> {
   if args.len() != 1 {
-    return Err(Error::TypeError("int() takes exactly one argument".into()));
+    return Err(Error::TypeError {
+      message: "int() takes exactly one argument".into(),
+    });
   }
 
   match &args[0] {
     Object::Int(i) => Ok(Object::Int(*i)),
     Object::Float(f) => Ok(Object::Int(*f as i64)),
     Object::Bool(b) => Ok(Object::Int(i64::from(*b))),
-    Object::Str(s) => s.parse::<i64>().map(Object::Int).map_err(|_| {
-      Error::TypeError(format!("invalid literal for int(): '{s}'"))
+    Object::Str(s) => {
+      s.parse::<i64>()
+        .map(Object::Int)
+        .map_err(|_| Error::TypeError {
+          message: format!("invalid literal for int(): '{s}'"),
+        })
+    }
+    _ => Err(Error::TypeError {
+      message: format!(
+        "int() argument must be a string or a number, not '{}'",
+        args[0].type_name()
+      ),
     }),
-    _ => Err(Error::TypeError(format!(
-      "int() argument must be a string or a number, not '{}'",
-      args[0].type_name()
-    ))),
   }
 }
 
 fn builtin_len(args: &[Object]) -> Result<Object> {
   if args.len() != 1 {
-    return Err(Error::TypeError("len() takes exactly one argument".into()));
+    return Err(Error::TypeError {
+      message: "len() takes exactly one argument".into(),
+    });
   }
 
   match &args[0] {
     Object::Str(s) => Ok(Object::Int(s.len() as i64)),
-    _ => Err(Error::TypeError(format!(
-      "object of type '{}' has no len()",
-      args[0].type_name()
-    ))),
+    _ => Err(Error::TypeError {
+      message: format!("object of type '{}' has no len()", args[0].type_name()),
+    }),
   }
 }
 
@@ -329,7 +338,9 @@ fn builtin_print(args: &[Object]) -> Result<Object> {
 
 fn builtin_str(args: &[Object]) -> Result<Object> {
   if args.len() != 1 {
-    return Err(Error::TypeError("str() takes exactly one argument".into()));
+    return Err(Error::TypeError {
+      message: "str() takes exactly one argument".into(),
+    });
   }
 
   Ok(Object::Str(args[0].to_string()))
@@ -337,7 +348,9 @@ fn builtin_str(args: &[Object]) -> Result<Object> {
 
 fn builtin_type(args: &[Object]) -> Result<Object> {
   if args.len() != 1 {
-    return Err(Error::TypeError("type() takes exactly one argument".into()));
+    return Err(Error::TypeError {
+      message: "type() takes exactly one argument".into(),
+    });
   }
 
   Ok(Object::Str(format!("<class '{}'>", args[0].type_name())))

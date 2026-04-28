@@ -46,7 +46,9 @@ impl Object {
     };
 
     if b == 0.0 {
-      return Err(Error::TypeError("division by zero".into()));
+      return Err(Error::TypeError {
+        message: "division by zero".into(),
+      });
     }
 
     Ok(Self::Float(a / b))
@@ -56,36 +58,36 @@ impl Object {
     match (self, rhs) {
       (Self::Int(a), Self::Int(b)) => {
         if *b == 0 {
-          return Err(Error::TypeError(
-            "integer division or modulo by zero".into(),
-          ));
+          return Err(Error::TypeError {
+            message: "integer division or modulo by zero".into(),
+          });
         }
 
         Ok(Self::Int(a.div_euclid(*b)))
       }
       (Self::Float(a), Self::Float(b)) => {
         if *b == 0.0 {
-          return Err(Error::TypeError(
-            "integer division or modulo by zero".into(),
-          ));
+          return Err(Error::TypeError {
+            message: "integer division or modulo by zero".into(),
+          });
         }
 
         Ok(Self::Float((a / b).floor()))
       }
       (Self::Int(a), Self::Float(b)) => {
         if *b == 0.0 {
-          return Err(Error::TypeError(
-            "integer division or modulo by zero".into(),
-          ));
+          return Err(Error::TypeError {
+            message: "integer division or modulo by zero".into(),
+          });
         }
 
         Ok(Self::Float((*a as f64 / b).floor()))
       }
       (Self::Float(a), Self::Int(b)) => {
         if *b == 0 {
-          return Err(Error::TypeError(
-            "integer division or modulo by zero".into(),
-          ));
+          return Err(Error::TypeError {
+            message: "integer division or modulo by zero".into(),
+          });
         }
 
         Ok(Self::Float((a / *b as f64).floor()))
@@ -98,36 +100,36 @@ impl Object {
     match (self, rhs) {
       (Self::Int(a), Self::Int(b)) => {
         if *b == 0 {
-          return Err(Error::TypeError(
-            "integer division or modulo by zero".into(),
-          ));
+          return Err(Error::TypeError {
+            message: "integer division or modulo by zero".into(),
+          });
         }
 
         Ok(Self::Int(a.rem_euclid(*b)))
       }
       (Self::Float(a), Self::Float(b)) => {
         if *b == 0.0 {
-          return Err(Error::TypeError(
-            "integer division or modulo by zero".into(),
-          ));
+          return Err(Error::TypeError {
+            message: "integer division or modulo by zero".into(),
+          });
         }
 
         Ok(Self::Float(a % b))
       }
       (Self::Int(a), Self::Float(b)) => {
         if *b == 0.0 {
-          return Err(Error::TypeError(
-            "integer division or modulo by zero".into(),
-          ));
+          return Err(Error::TypeError {
+            message: "integer division or modulo by zero".into(),
+          });
         }
 
         Ok(Self::Float(*a as f64 % b))
       }
       (Self::Float(a), Self::Int(b)) => {
         if *b == 0 {
-          return Err(Error::TypeError(
-            "integer division or modulo by zero".into(),
-          ));
+          return Err(Error::TypeError {
+            message: "integer division or modulo by zero".into(),
+          });
         }
 
         Ok(Self::Float(a % *b as f64))
@@ -179,11 +181,13 @@ impl Object {
   }
 
   fn binary_type_error(&self, op: &str, rhs: &Self) -> Error {
-    Error::TypeError(format!(
-      "unsupported operand type(s) for {op}: '{}' and '{}'",
-      self.type_name(),
-      rhs.type_name()
-    ))
+    Error::TypeError {
+      message: format!(
+        "unsupported operand type(s) for {op}: '{}' and '{}'",
+        self.type_name(),
+        rhs.type_name()
+      ),
+    }
   }
 
   pub fn compare_eq(&self, rhs: &Self) -> Self {
@@ -223,11 +227,13 @@ impl Object {
       (Self::Float(a), Self::Int(b)) => (*a, *b as f64),
       (Self::Str(a), Self::Str(b)) => return Ok(Self::Bool(cmp_str(a, b, op))),
       _ => {
-        return Err(Error::TypeError(format!(
-          "'{op}' not supported between instances of '{}' and '{}'",
-          self.type_name(),
-          rhs.type_name()
-        )));
+        return Err(Error::TypeError {
+          message: format!(
+            "'{op}' not supported between instances of '{}' and '{}'",
+            self.type_name(),
+            rhs.type_name()
+          ),
+        });
       }
     };
 
@@ -261,10 +267,12 @@ impl Object {
     match self {
       Self::Int(a) => a.checked_neg().map(Self::Int).ok_or(Error::Overflow),
       Self::Float(a) => Ok(Self::Float(-a)),
-      _ => Err(Error::TypeError(format!(
-        "bad operand type for unary -: '{}'",
-        self.type_name()
-      ))),
+      _ => Err(Error::TypeError {
+        message: format!(
+          "bad operand type for unary -: '{}'",
+          self.type_name()
+        ),
+      }),
     }
   }
 
@@ -276,10 +284,12 @@ impl Object {
     match self {
       Self::Int(a) => Ok(Self::Int(*a)),
       Self::Float(a) => Ok(Self::Float(*a)),
-      _ => Err(Error::TypeError(format!(
-        "bad operand type for unary +: '{}'",
-        self.type_name()
-      ))),
+      _ => Err(Error::TypeError {
+        message: format!(
+          "bad operand type for unary +: '{}'",
+          self.type_name()
+        ),
+      }),
     }
   }
 }

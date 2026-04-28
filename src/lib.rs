@@ -6,6 +6,7 @@ use {
   },
   ruff_python_parser::ParseError,
   scope::Scope,
+  snafu::Snafu,
   std::{
     collections::HashMap,
     fmt::{self, Display, Formatter},

@@ -118,7 +118,9 @@ impl Compiler {
 
   fn compile_call(&mut self, node: &ExprCall) -> Result<()> {
     if !node.arguments.keywords.is_empty() {
-      return Err(Error::UnsupportedSyntax("keyword arguments".into()));
+      return Err(Error::UnsupportedSyntax {
+        message: "keyword arguments".into(),
+      });
     }
 
     self.compile_expr(&node.func)?;
@@ -129,8 +131,9 @@ impl Compiler {
       self.compile_expr(arg)?;
     }
 
-    let argc = u8::try_from(argc)
-      .map_err(|_| Error::Compile("too many arguments".into()))?;
+    let argc = u8::try_from(argc).map_err(|_| Error::Compile {
+      message: "too many arguments".into(),
+    })?;
 
     self.emit(Op::CallFunction(argc));
 
@@ -139,7 +142,9 @@ impl Compiler {
 
   fn compile_compare(&mut self, node: &ExprCompare) -> Result<()> {
     if node.ops.len() != 1 {
-      return Err(Error::UnsupportedSyntax("chained comparisons".into()));
+      return Err(Error::UnsupportedSyntax {
+        message: "chained comparisons".into(),
+      });
     }
 
     self.compile_expr(&node.left)?;
@@ -154,10 +159,9 @@ impl Compiler {
       CmpOp::Gt => Op::CompareGt,
       CmpOp::GtE => Op::CompareGe,
       CmpOp::Is | CmpOp::IsNot | CmpOp::In | CmpOp::NotIn => {
-        return Err(Error::UnsupportedSyntax(format!(
-          "comparison operator: {}",
-          node.ops[0].as_str()
-        )));
+        return Err(Error::UnsupportedSyntax {
+          message: format!("comparison operator: {}", node.ops[0].as_str()),
+        });
       }
     };
 
@@ -216,15 +220,16 @@ impl Compiler {
           UnaryOp::UAdd => self.emit(Op::UnaryPos),
           UnaryOp::Not => self.emit(Op::UnaryNot),
           UnaryOp::Invert => {
-            return Err(Error::UnsupportedSyntax("bitwise invert (~)".into()));
+            return Err(Error::UnsupportedSyntax {
+              message: "bitwise invert (~)".into(),
+            });
           }
         }
         Ok(())
       }
-      _ => Err(Error::UnsupportedSyntax(format!(
-        "expression: {}",
-        expr_name(expr)
-      ))),
+      _ => Err(Error::UnsupportedSyntax {
+        message: format!("expression: {}", expr_name(expr)),
+      }),
     }
   }
 
@@ -333,20 +338,24 @@ impl Compiler {
         self.emit(op);
         Ok(())
       }
-      _ => Err(Error::UnsupportedSyntax("complex assignment target".into())),
+      _ => Err(Error::UnsupportedSyntax {
+        message: "complex assignment target".into(),
+      }),
     }
   }
 
   fn compile_number(&mut self, node: &ExprNumberLiteral) -> Result<()> {
     let obj = match &node.value {
-      Number::Int(int) => Object::Int(
-        int
-          .as_i64()
-          .ok_or_else(|| Error::Compile("integer too large".into()))?,
-      ),
+      Number::Int(int) => {
+        Object::Int(int.as_i64().ok_or_else(|| Error::Compile {
+          message: "integer too large".into(),
+        })?)
+      }
       Number::Float(f) => Object::Float(*f),
       Number::Complex { .. } => {
-        return Err(Error::UnsupportedSyntax("complex numbers".into()));
+        return Err(Error::UnsupportedSyntax {
+          message: "complex numbers".into(),
+        });
       }
     };
 
@@ -374,12 +383,12 @@ impl Compiler {
     match stmt {
       Stmt::Assign(node) => self.compile_assign(node),
       Stmt::AugAssign(node) => self.compile_aug_assign(node),
-      Stmt::Break(_) => Err(Error::UnsupportedSyntax(
-        "break (not yet implemented)".into(),
-      )),
-      Stmt::Continue(_) => Err(Error::UnsupportedSyntax(
-        "continue (not yet implemented)".into(),
-      )),
+      Stmt::Break(_) => Err(Error::UnsupportedSyntax {
+        message: "break (not yet implemented)".into(),
+      }),
+      Stmt::Continue(_) => Err(Error::UnsupportedSyntax {
+        message: "continue (not yet implemented)".into(),
+      }),
       Stmt::Expr(node) => {
         self.compile_expr(&node.value)?;
         self.emit(Op::Pop);
@@ -390,10 +399,9 @@ impl Compiler {
       Stmt::Pass(_) => Ok(()),
       Stmt::Return(node) => self.compile_return(node),
       Stmt::While(node) => self.compile_while(node),
-      _ => Err(Error::UnsupportedSyntax(format!(
-        "statement: {}",
-        stmt_name(stmt)
-      ))),
+      _ => Err(Error::UnsupportedSyntax {
+        message: format!("statement: {}", stmt_name(stmt)),
+      }),
     }
   }
 
@@ -404,7 +412,9 @@ impl Compiler {
         self.emit(op);
         Ok(())
       }
-      _ => Err(Error::UnsupportedSyntax("complex assignment target".into())),
+      _ => Err(Error::UnsupportedSyntax {
+        message: "complex assignment target".into(),
+      }),
     }
   }
 
@@ -523,10 +533,9 @@ fn operator_to_binary_op(op: Operator) -> Result<Op> {
     Operator::FloorDiv => Ok(Op::BinaryFloorDiv),
     Operator::Mod => Ok(Op::BinaryMod),
     Operator::Pow => Ok(Op::BinaryPow),
-    _ => Err(Error::UnsupportedSyntax(format!(
-      "operator: {}",
-      op.as_str()
-    ))),
+    _ => Err(Error::UnsupportedSyntax {
+      message: format!("operator: {}", op.as_str()),
+    }),
   }
 }
 

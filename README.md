@@ -1,3 +1,3 @@
 ## taipan
 
-**taipan** is an extremely fast Python interpreter, written in Rust.
+**taipan** is an experimental Python interpreter, written in Rust.
