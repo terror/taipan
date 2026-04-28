@@ -1,33 +1,26 @@
-use super::*;
+use {super::*, crate::frame::Frame};
 
-struct Frame {
-  code: Code,
-  ip: usize,
-  locals: Vec<Option<Object>>,
-  stack: Vec<Object>,
-}
-
-pub struct Vm<W: Write> {
+pub struct Machine<W: Write> {
   frames: Vec<Frame>,
   globals: HashMap<String, Object>,
   output: W,
 }
 
-impl Vm<io::Stdout> {
+impl Machine<Stdout> {
   pub fn run(code: Code) -> Result<Object> {
-    let mut vm = Vm {
+    let mut machine = Machine {
       frames: Vec::new(),
       globals: HashMap::new(),
       output: io::stdout(),
     };
 
-    vm.init_builtins();
+    machine.initialize();
 
-    vm.execute(code)
+    machine.execute(code)
   }
 }
 
-impl<W: Write> Vm<W> {
+impl<W: Write> Machine<W> {
   fn binary_op(
     &mut self,
     op: fn(&Object, &Object) -> Result<Object>,
@@ -105,7 +98,7 @@ impl<W: Write> Vm<W> {
     self.run_loop()
   }
 
-  fn init_builtins(&mut self) {
+  fn initialize(&mut self) {
     self.globals.insert(
       "int".into(),
       Object::BuiltinFn(BuiltinFn {
@@ -113,6 +106,7 @@ impl<W: Write> Vm<W> {
         name: "int",
       }),
     );
+
     self.globals.insert(
       "len".into(),
       Object::BuiltinFn(BuiltinFn {
@@ -120,6 +114,7 @@ impl<W: Write> Vm<W> {
         name: "len",
       }),
     );
+
     self.globals.insert(
       "print".into(),
       Object::BuiltinFn(BuiltinFn {
@@ -127,6 +122,7 @@ impl<W: Write> Vm<W> {
         name: "print",
       }),
     );
+
     self.globals.insert(
       "str".into(),
       Object::BuiltinFn(BuiltinFn {
@@ -134,6 +130,7 @@ impl<W: Write> Vm<W> {
         name: "str",
       }),
     );
+
     self.globals.insert(
       "type".into(),
       Object::BuiltinFn(BuiltinFn {
@@ -280,14 +277,14 @@ impl<W: Write> Vm<W> {
   }
 
   pub fn with_output(code: Code, output: W) -> Result<(Object, W)> {
-    let mut vm = Vm {
+    let mut machine = Machine {
       frames: Vec::new(),
       globals: HashMap::new(),
       output,
     };
-    vm.init_builtins();
-    let result = vm.execute(code)?;
-    Ok((result, vm.output))
+    machine.initialize();
+    let result = machine.execute(code)?;
+    Ok((result, machine.output))
   }
 }
 
@@ -366,7 +363,7 @@ mod tests {
 
     let output = Vec::new();
 
-    let (result, output) = Vm::with_output(code, output).unwrap();
+    let (result, output) = Machine::with_output(code, output).unwrap();
 
     (result, String::from_utf8(output).unwrap())
   }
@@ -471,7 +468,7 @@ print(greet("world"))
       .try_into_module()
       .unwrap();
     let code = Compiler::compile(parsed.syntax()).unwrap();
-    let result = Vm::run(code);
+    let result = Machine::run(code);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("foo"));
   }

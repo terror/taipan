@@ -9,17 +9,18 @@ use {
   std::{
     collections::HashMap,
     fmt::{self, Display, Formatter},
-    io::{self, Write},
+    io::{self, Stdout, Write},
   },
 };
 
 mod code;
 mod compiler;
 mod error;
+mod frame;
+mod machine;
 mod object;
 mod op;
 mod scope;
-mod vm;
 
 pub type Result<T = (), E = Error> = std::result::Result<T, E>;
 
@@ -27,7 +28,7 @@ pub use {
   code::Code,
   compiler::Compiler,
   error::Error,
+  machine::Machine,
   object::{BuiltinFn, Object},
   op::Op,
-  vm::Vm,
 };

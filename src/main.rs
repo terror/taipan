@@ -2,7 +2,7 @@ use {
   ruff_python_ast::ModModule,
   ruff_python_parser::{Mode, ParseError, Parsed, parse},
   std::process,
-  taipan::{Compiler, Vm},
+  taipan::{Compiler, Machine},
 };
 
 fn parse_module(source: &str) -> Result<Parsed<ModModule>, ParseError> {
@@ -40,7 +40,7 @@ print(greet("world"))
     }
   };
 
-  if let Err(error) = Vm::run(code) {
+  if let Err(error) = Machine::run(code) {
     eprintln!("{error}");
     process::exit(1);
   }
