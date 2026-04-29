@@ -14,12 +14,13 @@ use {
   scope::Scope,
   snafu::Snafu,
   std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{self, Display, Formatter},
     io::{self, Stdout, Write},
     mem,
   },
   stmt_ext::StmtExt,
+  symbol_table::{Symbol, SymbolTable},
 };
 
 mod builtin;
@@ -37,6 +38,7 @@ mod object;
 mod operator_ext;
 mod scope;
 mod stmt_ext;
+mod symbol_table;
 
 pub type Result<T = (), E = Error> = std::result::Result<T, E>;
 

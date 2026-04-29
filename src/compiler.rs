@@ -20,10 +20,12 @@ impl Compiler {
   ///
   /// Returns an error if the module contains unsupported syntax.
   pub fn compile(module: &ModModule) -> Result<Code> {
+    let symbols = SymbolTable::module(&module.body)?;
+
     let mut compiler = Self {
       scope: Scope {
         code: CodeBuilder::default(),
-        in_function: false,
+        symbols,
       },
       scopes: Vec::new(),
     };
@@ -104,8 +106,8 @@ impl Compiler {
 
     let argc = node.arguments.args.len();
 
-    for arg in &*node.arguments.args {
-      self.compile_expr(arg)?;
+    for argument in &*node.arguments.args {
+      self.compile_expr(argument)?;
     }
 
     let argc = u8::try_from(argc).map_err(|_| Error::Compile {
@@ -216,18 +218,20 @@ impl Compiler {
       .map(|argument| argument.parameter.name.id.to_string())
       .collect::<Vec<_>>();
 
+    let symbols = SymbolTable::function(&parameters, &node.body)?;
+
     let scope = std::mem::replace(
       &mut self.scope,
       Scope {
         code: CodeBuilder::default(),
-        in_function: true,
+        symbols,
       },
     );
 
     self.scopes.push(scope);
 
-    for parameter in &parameters {
-      self.code_mut().add_local(parameter)?;
+    for local in self.scope().symbols.locals().to_vec() {
+      self.code_mut().add_local(&local)?;
     }
 
     self.compile_body(&node.body)?;
@@ -260,9 +264,9 @@ impl Compiler {
 
     self.code_mut().emit(Instruction::MakeFunction(const_index));
 
-    let name_index = self.code_mut().add_name(&name)?;
+    let instruction = self.resolve_store(&name)?;
 
-    self.code_mut().emit(Instruction::StoreName(name_index));
+    self.code_mut().emit(instruction);
 
     Ok(())
   }
@@ -324,7 +328,7 @@ impl Compiler {
   }
 
   fn compile_number(&mut self, node: &ExprNumberLiteral) -> Result<()> {
-    let object = match &node.value {
+    self.emit_const(match &node.value {
       Number::Int(int) => {
         Object::Int(int.as_i64().ok_or_else(|| Error::Compile {
           message: "integer too large".into(),
@@ -336,9 +340,7 @@ impl Compiler {
           message: "complex numbers".into(),
         });
       }
-    };
-
-    self.emit_const(object)
+    })
   }
 
   fn compile_return(&mut self, node: &StmtReturn) -> Result<()> {
@@ -370,7 +372,10 @@ impl Compiler {
       }
       Stmt::FunctionDef(node) => self.compile_function_def(node),
       Stmt::If(node) => self.compile_if(node),
-      Stmt::Pass(_) => Ok(()),
+      Stmt::Nonlocal(_) => Err(Error::UnsupportedSyntax {
+        message: "nonlocal (not yet implemented)".into(),
+      }),
+      Stmt::Global(_) | Stmt::Pass(_) => Ok(()),
       Stmt::Return(node) => self.compile_return(node),
       Stmt::While(node) => self.compile_while(node),
       _ => Err(Error::UnsupportedSyntax {
@@ -420,29 +425,44 @@ impl Compiler {
   }
 
   fn resolve_load(&mut self, name: &str) -> Result<Instruction> {
-    if self.scope().in_function
-      && let Some(index) = self
-        .scope()
-        .code
-        .locals()
-        .iter()
-        .position(|local_name| local_name == name)
-    {
-      return Ok(Instruction::LoadFast(u16::try_from(index).map_err(
-        |_| Error::Compile {
-          message: "local table overflow".into(),
-        },
-      )?));
-    }
+    match self.scope().symbols.resolve(name) {
+      Symbol::Local => {
+        let index = self
+          .scope()
+          .code
+          .locals()
+          .iter()
+          .position(|local_name| local_name == name)
+          .ok_or_else(|| Error::Compile {
+            message: format!("missing local: {name}"),
+          })?;
 
-    Ok(Instruction::LoadName(self.code_mut().add_name(name)?))
+        Ok(Instruction::LoadFast(u16::try_from(index).map_err(
+          |_| Error::Compile {
+            message: "local table overflow".into(),
+          },
+        )?))
+      }
+      Symbol::Global | Symbol::Name => {
+        Ok(Instruction::LoadName(self.code_mut().add_name(name)?))
+      }
+      Symbol::Nonlocal => Err(Error::UnsupportedSyntax {
+        message: "nonlocal (not yet implemented)".into(),
+      }),
+    }
   }
 
   fn resolve_store(&mut self, name: &str) -> Result<Instruction> {
-    if self.scope().in_function {
-      Ok(Instruction::StoreFast(self.code_mut().add_local(name)?))
-    } else {
-      Ok(Instruction::StoreName(self.code_mut().add_name(name)?))
+    match self.scope().symbols.resolve(name) {
+      Symbol::Global | Symbol::Name => {
+        Ok(Instruction::StoreName(self.code_mut().add_name(name)?))
+      }
+      Symbol::Local => {
+        Ok(Instruction::StoreFast(self.code_mut().add_local(name)?))
+      }
+      Symbol::Nonlocal => Err(Error::UnsupportedSyntax {
+        message: "nonlocal (not yet implemented)".into(),
+      }),
     }
   }
 
@@ -688,6 +708,102 @@ mod tests {
         .code(),
     })
     .names(&["baz"])
+    .run();
+  }
+
+  #[test]
+  fn function_global() {
+    Test::new(indoc! {
+      "
+      def foo():
+        global bar
+        bar = 1
+      "
+    })
+    .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
+    .constant(Object::Function {
+      name: "foo".to_owned(),
+      params: Vec::new(),
+      code: Test::default()
+        .instructions(&[
+          Instruction::LoadConst(0),
+          Instruction::StoreName(0),
+          Instruction::LoadConst(1),
+          Instruction::Return,
+        ])
+        .constant(Object::Int(1))
+        .constant(Object::None)
+        .names(&["bar"])
+        .code(),
+    })
+    .names(&["foo"])
+    .run();
+  }
+
+  #[test]
+  fn function_local_from_later_assignment() {
+    Test::new(indoc! {
+      "
+      def foo():
+        bar
+        bar = 1
+      "
+    })
+    .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
+    .constant(Object::Function {
+      name: "foo".to_owned(),
+      params: Vec::new(),
+      code: Test::default()
+        .instructions(&[
+          Instruction::LoadFast(0),
+          Instruction::Pop,
+          Instruction::LoadConst(0),
+          Instruction::StoreFast(0),
+          Instruction::LoadConst(1),
+          Instruction::Return,
+        ])
+        .constant(Object::Int(1))
+        .constant(Object::None)
+        .locals(&["bar"])
+        .code(),
+    })
+    .names(&["foo"])
+    .run();
+  }
+
+  #[test]
+  fn nested_function_def_is_local() {
+    Test::new(indoc! {
+      "
+      def foo():
+        def bar():
+          return 1
+      "
+    })
+    .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
+    .constant(Object::Function {
+      name: "foo".to_owned(),
+      params: Vec::new(),
+      code: Test::default()
+        .instructions(&[
+          Instruction::MakeFunction(0),
+          Instruction::StoreFast(0),
+          Instruction::LoadConst(1),
+          Instruction::Return,
+        ])
+        .constant(Object::Function {
+          name: "bar".to_owned(),
+          params: Vec::new(),
+          code: Test::default()
+            .instructions(&[Instruction::LoadConst(0), Instruction::Return])
+            .constant(Object::Int(1))
+            .code(),
+        })
+        .constant(Object::None)
+        .locals(&["bar"])
+        .code(),
+    })
+    .names(&["foo"])
     .run();
   }
 
