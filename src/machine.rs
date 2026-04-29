@@ -366,203 +366,292 @@ impl<W: Write> Machine<W> {
 mod tests {
   use {
     super::*,
+    indoc::indoc,
+    pretty_assertions::assert_eq,
     ruff_python_parser::{Mode, parse},
   };
 
-  fn run(source: &str) -> (Object, String) {
-    let code = Compiler::compile(
-      parse(source, Mode::Module.into())
+  #[derive(Debug)]
+  struct Test {
+    expected_error: Option<&'static str>,
+    expected_output: &'static str,
+    expected_result: Object,
+    source: &'static str,
+  }
+
+  impl Test {
+    fn expected_error(self, expected_error: &'static str) -> Self {
+      Self {
+        expected_error: Some(expected_error),
+        ..self
+      }
+    }
+
+    fn expected_output(self, expected_output: &'static str) -> Self {
+      Self {
+        expected_output,
+        ..self
+      }
+    }
+
+    fn new(source: &'static str) -> Self {
+      Self {
+        expected_error: None,
+        expected_output: "",
+        expected_result: Object::None,
+        source,
+      }
+    }
+
+    fn run(self) {
+      let output = Vec::new();
+
+      let module = parse(self.source, Mode::Module.into())
         .unwrap()
         .try_into_module()
-        .unwrap()
-        .syntax(),
-    )
-    .unwrap();
+        .unwrap();
 
-    let output = Vec::new();
+      let result = Machine::with_output(
+        Compiler::compile(module.syntax()).unwrap(),
+        output,
+      );
 
-    let (result, output) = Machine::with_output(code, output).unwrap();
+      if let Some(expected_error) = self.expected_error {
+        assert!(
+          result.unwrap_err().to_string().contains(expected_error),
+          "expected error to contain: `{expected_error}`",
+        );
 
-    (result, String::from_utf8(output).unwrap())
+        return;
+      }
+
+      let (result, output) = result.unwrap();
+
+      assert_eq!(result, self.expected_result);
+      assert_eq!(String::from_utf8(output).unwrap(), self.expected_output);
+    }
   }
 
   #[test]
   fn arithmetic() {
-    let (_, output) = run("print(1 + 2)\n");
-
-    assert_eq!(output, "3\n");
+    Test::new("print(1 + 2)\n").expected_output("3\n").run();
   }
 
   #[test]
   fn aug_assign() {
-    let (_, output) = run("foo = 10\nfoo += 5\nprint(foo)\n");
-
-    assert_eq!(output, "15\n");
+    Test::new(indoc! {
+      "
+      foo = 10
+      foo += 5
+      print(foo)
+      "
+    })
+    .expected_output("15\n")
+    .run();
   }
 
   #[test]
   fn bool_ops() {
-    #[track_caller]
-    fn case(source: &str, expected: &str) {
-      let (_, output) = run(source);
-      assert_eq!(output, expected);
-    }
-
-    case("print(1 and 2)\n", "2\n");
-    case("print(0 and 2)\n", "0\n");
-    case("print(1 or 2)\n", "1\n");
-    case("print(0 or 2)\n", "2\n");
+    Test::new("print(1 and 2)\n").expected_output("2\n").run();
+    Test::new("print(0 and 2)\n").expected_output("0\n").run();
+    Test::new("print(1 or 2)\n").expected_output("1\n").run();
+    Test::new("print(0 or 2)\n").expected_output("2\n").run();
   }
 
   #[test]
   fn comparison_ops() {
-    #[track_caller]
-    fn case(source: &str, expected: &str) {
-      let (_, output) = run(source);
-      assert_eq!(output, expected);
-    }
-
-    case("print(1 < 2)\n", "True\n");
-    case("print(2 < 1)\n", "False\n");
-    case("print(1 == 1)\n", "True\n");
-    case("print(1 != 2)\n", "True\n");
+    Test::new("print(1 < 2)\n").expected_output("True\n").run();
+    Test::new("print(2 < 1)\n").expected_output("False\n").run();
+    Test::new("print(1 == 1)\n").expected_output("True\n").run();
+    Test::new("print(1 != 2)\n").expected_output("True\n").run();
   }
 
   #[test]
   fn function_call() {
-    let (_, output) =
-      run("def foo(bar):\n    return bar + 1\nprint(foo(41))\n");
-
-    assert_eq!(output, "42\n");
+    Test::new(indoc! {
+      "
+      def foo(bar):
+        return bar + 1
+      print(foo(41))
+      "
+    })
+    .expected_output("42\n")
+    .run();
   }
 
   #[test]
   fn greet_example() {
-    let source = r#"
-x = 1 + 2
-print(x)
+    Test::new(indoc! {
+      r#"
+      x = 1 + 2
+      print(x)
 
-def greet(name):
-    return "Hello, " + name
+      def greet(name):
+        return "Hello, " + name
 
-print(greet("world"))
-"#;
-    let (_, output) = run(source);
-
-    assert_eq!(output, "3\nHello, world\n");
+      print(greet("world"))
+      "#
+    })
+    .expected_output("3\nHello, world\n")
+    .run();
   }
 
   #[test]
   fn if_elif_else() {
-    #[track_caller]
-    fn case(source: &str, expected: &str) {
-      let (_, output) = run(source);
-      assert_eq!(output, expected);
-    }
+    Test::new(indoc! {
+      r#"
+      if 1:
+        print("foo")
+      elif 1:
+        print("bar")
+      else:
+        print("baz")
+      "#
+    })
+    .expected_output("foo\n")
+    .run();
 
-    case(
-      "if 1:\n    print(\"foo\")\nelif 1:\n    print(\"bar\")\nelse:\n    print(\"baz\")\n",
-      "foo\n",
-    );
-    case(
-      "if 0:\n    print(\"foo\")\nelif 1:\n    print(\"bar\")\nelse:\n    print(\"baz\")\n",
-      "bar\n",
-    );
-    case(
-      "if 0:\n    print(\"foo\")\nelif 0:\n    print(\"bar\")\nelse:\n    print(\"baz\")\n",
-      "baz\n",
-    );
+    Test::new(indoc! {
+      r#"
+      if 0:
+        print("foo")
+      elif 1:
+        print("bar")
+      else:
+        print("baz")
+      "#
+    })
+    .expected_output("bar\n")
+    .run();
+
+    Test::new(indoc! {
+      r#"
+      if 0:
+        print("foo")
+      elif 0:
+        print("bar")
+      else:
+        print("baz")
+      "#
+    })
+    .expected_output("baz\n")
+    .run();
   }
 
   #[test]
   fn if_else() {
-    let (_, output) =
-      run("if 0:\n    print(\"foo\")\nelse:\n    print(\"bar\")\n");
-
-    assert_eq!(output, "bar\n");
+    Test::new(indoc! {
+      r#"
+      if 0:
+        print("foo")
+      else:
+        print("bar")
+      "#
+    })
+    .expected_output("bar\n")
+    .run();
   }
 
   #[test]
   fn if_false_branch() {
-    let (_, output) = run("if 0:\n    print(\"foo\")\n");
-
-    assert_eq!(output, "");
+    Test::new(indoc! {
+      r#"
+      if 0:
+        print("foo")
+      "#
+    })
+    .expected_output("")
+    .run();
   }
 
   #[test]
   fn if_true_branch() {
-    let (_, output) = run("if 1:\n    print(\"foo\")\n");
-
-    assert_eq!(output, "foo\n");
+    Test::new(indoc! {
+      r#"
+      if 1:
+        print("foo")
+      "#
+    })
+    .expected_output("foo\n")
+    .run();
   }
 
   #[test]
   fn implicit_return() {
-    let (_, output) = run("def foo():\n    pass\nprint(foo())\n");
-
-    assert_eq!(output, "None\n");
+    Test::new(indoc! {
+      "
+      def foo():
+        pass
+      print(foo())
+      "
+    })
+    .expected_output("None\n")
+    .run();
   }
 
   #[test]
   fn multiple_args() {
-    let (_, output) = run("print(\"foo\", \"bar\", \"baz\")\n");
-
-    assert_eq!(output, "foo bar baz\n");
+    Test::new("print(\"foo\", \"bar\", \"baz\")\n")
+      .expected_output("foo bar baz\n")
+      .run();
   }
 
   #[test]
   fn name_error() {
-    let parsed = parse("foo\n", Mode::Module.into())
-      .unwrap()
-      .try_into_module()
-      .unwrap();
-
-    let result = Machine::run(Compiler::compile(parsed.syntax()).unwrap());
-
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("foo"));
+    Test::new("foo\n").expected_error("foo").run();
   }
 
   #[test]
   fn nested_function() {
-    let (_, output) = run(
-      "def foo(bar):\n    def baz(qux):\n        return qux * 2\n    return baz(bar) + 1\nprint(foo(5))\n",
-    );
-
-    assert_eq!(output, "11\n");
+    Test::new(indoc! {
+      "
+      def foo(bar):
+        def baz(qux):
+          return qux * 2
+        return baz(bar) + 1
+      print(foo(5))
+      "
+    })
+    .expected_output("11\n")
+    .run();
   }
 
   #[test]
   fn string_concatenation() {
-    let (_, output) = run("print(\"foo\" + \"bar\")\n");
-
-    assert_eq!(output, "foobar\n");
+    Test::new("print(\"foo\" + \"bar\")\n")
+      .expected_output("foobar\n")
+      .run();
   }
 
   #[test]
   fn ternary() {
-    #[track_caller]
-    fn case(source: &str, expected: &str) {
-      let (_, output) = run(source);
-      assert_eq!(output, expected);
-    }
+    Test::new("print(\"foo\" if 1 else \"bar\")\n")
+      .expected_output("foo\n")
+      .run();
 
-    case("print(\"foo\" if 1 else \"bar\")\n", "foo\n");
-    case("print(\"foo\" if 0 else \"bar\")\n", "bar\n");
+    Test::new("print(\"foo\" if 0 else \"bar\")\n")
+      .expected_output("bar\n")
+      .run();
   }
 
   #[test]
   fn variable_assignment() {
-    let (_, output) = run("foo = 42\nprint(foo)\n");
-
-    assert_eq!(output, "42\n");
+    Test::new("foo = 42\nprint(foo)\n")
+      .expected_output("42\n")
+      .run();
   }
 
   #[test]
   fn while_loop() {
-    let (_, output) =
-      run("foo = 0\nwhile foo < 3:\n    print(foo)\n    foo += 1\n");
-
-    assert_eq!(output, "0\n1\n2\n");
+    Test::new(indoc! {
+      "
+      foo = 0
+      while foo < 3:
+        print(foo)
+        foo += 1
+      "
+    })
+    .expected_output("0\n1\n2\n")
+    .run();
   }
 }
