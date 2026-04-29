@@ -21,9 +21,10 @@ mod compiler;
 mod error;
 mod expr_ext;
 mod frame;
+mod instruction;
 mod machine;
 mod object;
-mod op;
+mod operator_ext;
 mod scope;
 mod stmt_ext;
 
@@ -33,10 +34,11 @@ pub use {
   code::Code,
   compiler::Compiler,
   error::Error,
+  instruction::Instruction,
   machine::Machine,
   object::{BuiltinFn, Object},
-  op::Op,
 };
 
 pub(crate) use expr_ext::ExprExt;
+pub(crate) use operator_ext::OperatorExt;
 pub(crate) use stmt_ext::StmtExt;

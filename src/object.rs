@@ -184,10 +184,10 @@ impl Object {
     }
   }
 
-  fn binary_type_error(&self, op: &str, rhs: &Self) -> Error {
+  fn binary_type_error(&self, operator: &str, rhs: &Self) -> Error {
     Error::TypeError {
       message: format!(
-        "unsupported operand type(s) for {op}: '{}' and '{}'",
+        "unsupported operand type(s) for {operator}: '{}' and '{}'",
         self.type_name(),
         rhs.type_name()
       ),
@@ -221,7 +221,7 @@ impl Object {
   fn compare_numeric(
     &self,
     rhs: &Self,
-    op: &str,
+    operator: &str,
     cmp: fn(f64, f64) -> bool,
   ) -> Result<Self> {
     let (a, b) = match (self, rhs) {
@@ -229,11 +229,13 @@ impl Object {
       (Self::Float(a), Self::Float(b)) => (*a, *b),
       (Self::Int(a), Self::Float(b)) => (int_to_float(*a)?, *b),
       (Self::Float(a), Self::Int(b)) => (*a, int_to_float(*b)?),
-      (Self::Str(a), Self::Str(b)) => return Ok(Self::Bool(cmp_str(a, b, op))),
+      (Self::Str(a), Self::Str(b)) => {
+        return Ok(Self::Bool(cmp_str(a, b, operator)));
+      }
       _ => {
         return Err(Error::TypeError {
           message: format!(
-            "'{op}' not supported between instances of '{}' and '{}'",
+            "'{operator}' not supported between instances of '{}' and '{}'",
             self.type_name(),
             rhs.type_name()
           ),
@@ -298,8 +300,8 @@ impl Object {
   }
 }
 
-fn cmp_str(a: &str, b: &str, op: &str) -> bool {
-  match op {
+fn cmp_str(a: &str, b: &str, operator: &str) -> bool {
+  match operator {
     "<" => a < b,
     "<=" => a <= b,
     ">" => a > b,

@@ -72,7 +72,7 @@ impl Compiler {
 
     for (i, target) in node.targets.iter().enumerate() {
       if i < node.targets.len() - 1 {
-        self.emit(Op::Dup);
+        self.emit(Instruction::Dup);
       }
 
       self.compile_store(target)?;
@@ -84,7 +84,7 @@ impl Compiler {
   fn compile_aug_assign(&mut self, node: &StmtAugAssign) -> Result<()> {
     self.compile_load_target(&node.target)?;
     self.compile_expr(&node.value)?;
-    self.emit(operator_to_binary_op(node.op)?);
+    self.emit(node.op.instruction()?);
     self.compile_store(&node.target)?;
     Ok(())
   }
@@ -106,15 +106,15 @@ impl Compiler {
       self.compile_expr(value)?;
 
       if i < node.values.len() - 1 {
-        self.emit(Op::Dup);
+        self.emit(Instruction::Dup);
 
         let jump = if is_and {
-          self.emit_jump(Op::PopJumpIfFalse(0))
+          self.emit_jump(Instruction::PopJumpIfFalse(0))
         } else {
-          self.emit_jump(Op::PopJumpIfTrue(0))
+          self.emit_jump(Instruction::PopJumpIfTrue(0))
         };
 
-        self.emit(Op::Pop);
+        self.emit(Instruction::Pop);
 
         jumps.push(jump);
       }
@@ -146,7 +146,7 @@ impl Compiler {
       message: "too many arguments".into(),
     })?;
 
-    self.emit(Op::CallFunction(argc));
+    self.emit(Instruction::CallFunction(argc));
 
     Ok(())
   }
@@ -162,13 +162,13 @@ impl Compiler {
 
     self.compile_expr(&node.comparators[0])?;
 
-    let op = match node.ops[0] {
-      CmpOp::Eq => Op::CompareEq,
-      CmpOp::NotEq => Op::CompareNe,
-      CmpOp::Lt => Op::CompareLt,
-      CmpOp::LtE => Op::CompareLe,
-      CmpOp::Gt => Op::CompareGt,
-      CmpOp::GtE => Op::CompareGe,
+    let instruction = match node.ops[0] {
+      CmpOp::Eq => Instruction::CompareEq,
+      CmpOp::NotEq => Instruction::CompareNe,
+      CmpOp::Lt => Instruction::CompareLt,
+      CmpOp::LtE => Instruction::CompareLe,
+      CmpOp::Gt => Instruction::CompareGt,
+      CmpOp::GtE => Instruction::CompareGe,
       CmpOp::Is | CmpOp::IsNot | CmpOp::In | CmpOp::NotIn => {
         return Err(Error::UnsupportedSyntax {
           message: format!("comparison operator: {}", node.ops[0].as_str()),
@@ -176,7 +176,7 @@ impl Compiler {
       }
     };
 
-    self.emit(op);
+    self.emit(instruction);
 
     Ok(())
   }
@@ -186,50 +186,50 @@ impl Compiler {
       Expr::BinOp(node) => {
         self.compile_expr(&node.left)?;
         self.compile_expr(&node.right)?;
-        self.emit(operator_to_binary_op(node.op)?);
+        self.emit(node.op.instruction()?);
         Ok(())
       }
       Expr::BoolOp(node) => self.compile_bool_op(node),
       Expr::BooleanLiteral(node) => {
         let idx = self.add_const(Object::Bool(node.value));
-        self.emit(Op::LoadConst(idx));
+        self.emit(Instruction::LoadConst(idx));
         Ok(())
       }
       Expr::Call(node) => self.compile_call(node),
       Expr::Compare(node) => self.compile_compare(node),
       Expr::If(node) => {
         self.compile_expr(&node.test)?;
-        let false_jump = self.emit_jump(Op::PopJumpIfFalse(0));
+        let false_jump = self.emit_jump(Instruction::PopJumpIfFalse(0));
         self.compile_expr(&node.body)?;
-        let end_jump = self.emit_jump(Op::Jump(0));
+        let end_jump = self.emit_jump(Instruction::Jump(0));
         self.patch_jump(false_jump);
         self.compile_expr(&node.orelse)?;
         self.patch_jump(end_jump);
         Ok(())
       }
       Expr::Name(node) => {
-        let op = self.resolve_load(&node.id);
-        self.emit(op);
+        let instruction = self.resolve_load(&node.id);
+        self.emit(instruction);
         Ok(())
       }
       Expr::NoneLiteral(_) => {
         let idx = self.add_const(Object::None);
-        self.emit(Op::LoadConst(idx));
+        self.emit(Instruction::LoadConst(idx));
         Ok(())
       }
       Expr::NumberLiteral(node) => self.compile_number(node),
       Expr::StringLiteral(node) => {
         let s = node.value.to_str().to_owned();
         let idx = self.add_const(Object::Str(s));
-        self.emit(Op::LoadConst(idx));
+        self.emit(Instruction::LoadConst(idx));
         Ok(())
       }
       Expr::UnaryOp(node) => {
         self.compile_expr(&node.operand)?;
         match node.op {
-          UnaryOp::USub => self.emit(Op::UnaryNeg),
-          UnaryOp::UAdd => self.emit(Op::UnaryPos),
-          UnaryOp::Not => self.emit(Op::UnaryNot),
+          UnaryOp::USub => self.emit(Instruction::UnaryNeg),
+          UnaryOp::UAdd => self.emit(Instruction::UnaryPos),
+          UnaryOp::Not => self.emit(Instruction::UnaryNot),
           UnaryOp::Invert => {
             return Err(Error::UnsupportedSyntax {
               message: "bitwise invert (~)".into(),
@@ -271,14 +271,14 @@ impl Compiler {
     let last_is_return = self
       .scope()
       .code
-      .ops
+      .instructions
       .last()
-      .is_some_and(|op| *op == Op::Return);
+      .is_some_and(|instruction| *instruction == Instruction::Return);
 
     if !last_is_return {
       let idx = self.add_const(Object::None);
-      self.emit(Op::LoadConst(idx));
-      self.emit(Op::Return);
+      self.emit(Instruction::LoadConst(idx));
+      self.emit(Instruction::Return);
     }
 
     let func_code = self.scopes.pop().unwrap().code;
@@ -293,11 +293,11 @@ impl Compiler {
 
     let const_idx = self.add_const(func);
 
-    self.emit(Op::MakeFunction(const_idx));
+    self.emit(Instruction::MakeFunction(const_idx));
 
     let name_idx = self.add_name(&name);
 
-    self.emit(Op::StoreName(name_idx));
+    self.emit(Instruction::StoreName(name_idx));
 
     Ok(())
   }
@@ -305,7 +305,7 @@ impl Compiler {
   fn compile_if(&mut self, node: &StmtIf) -> Result<()> {
     self.compile_expr(&node.test)?;
 
-    let false_jump = self.emit_jump(Op::PopJumpIfFalse(0));
+    let false_jump = self.emit_jump(Instruction::PopJumpIfFalse(0));
 
     self.compile_body(&node.body)?;
 
@@ -317,16 +317,16 @@ impl Compiler {
     let mut end_jumps = vec![];
 
     for clause in &node.elif_else_clauses {
-      end_jumps.push(self.emit_jump(Op::Jump(0)));
+      end_jumps.push(self.emit_jump(Instruction::Jump(0)));
 
       self.patch_jump(false_jump);
 
       match &clause.test {
         Some(test) => {
           self.compile_expr(test)?;
-          let next_false = self.emit_jump(Op::PopJumpIfFalse(0));
+          let next_false = self.emit_jump(Instruction::PopJumpIfFalse(0));
           self.compile_body(&clause.body)?;
-          end_jumps.push(self.emit_jump(Op::Jump(0)));
+          end_jumps.push(self.emit_jump(Instruction::Jump(0)));
           self.patch_jump(next_false);
         }
         None => {
@@ -345,8 +345,8 @@ impl Compiler {
   fn compile_load_target(&mut self, target: &Expr) -> Result<()> {
     match target {
       Expr::Name(name) => {
-        let op = self.resolve_load(&name.id);
-        self.emit(op);
+        let instruction = self.resolve_load(&name.id);
+        self.emit(instruction);
         Ok(())
       }
       _ => Err(Error::UnsupportedSyntax {
@@ -372,7 +372,7 @@ impl Compiler {
 
     let idx = self.add_const(obj);
 
-    self.emit(Op::LoadConst(idx));
+    self.emit(Instruction::LoadConst(idx));
 
     Ok(())
   }
@@ -382,10 +382,10 @@ impl Compiler {
       self.compile_expr(expr)?;
     } else {
       let idx = self.add_const(Object::None);
-      self.emit(Op::LoadConst(idx));
+      self.emit(Instruction::LoadConst(idx));
     }
 
-    self.emit(Op::Return);
+    self.emit(Instruction::Return);
 
     Ok(())
   }
@@ -402,7 +402,7 @@ impl Compiler {
       }),
       Stmt::Expr(node) => {
         self.compile_expr(&node.value)?;
-        self.emit(Op::Pop);
+        self.emit(Instruction::Pop);
         Ok(())
       }
       Stmt::FunctionDef(node) => self.compile_function_def(node),
@@ -419,8 +419,8 @@ impl Compiler {
   fn compile_store(&mut self, target: &Expr) -> Result<()> {
     match target {
       Expr::Name(name) => {
-        let op = self.resolve_store(&name.id);
-        self.emit(op);
+        let instruction = self.resolve_store(&name.id);
+        self.emit(instruction);
         Ok(())
       }
       _ => Err(Error::UnsupportedSyntax {
@@ -432,59 +432,63 @@ impl Compiler {
   fn compile_while(&mut self, node: &StmtWhile) -> Result<()> {
     let loop_start = self.current_offset();
     self.compile_expr(&node.test)?;
-    let exit_jump = self.emit_jump(Op::PopJumpIfFalse(0));
+    let exit_jump = self.emit_jump(Instruction::PopJumpIfFalse(0));
     self.compile_body(&node.body)?;
-    self.emit(Op::Jump(loop_start));
+    self.emit(Instruction::Jump(loop_start));
     self.patch_jump(exit_jump);
     Ok(())
   }
 
   fn current_offset(&self) -> u16 {
-    u16::try_from(self.scope().code.ops.len())
+    u16::try_from(self.scope().code.instructions.len())
       .expect("instruction offset overflow")
   }
 
-  fn emit(&mut self, op: Op) {
-    self.scope_mut().code.ops.push(op);
+  fn emit(&mut self, instruction: Instruction) {
+    self.scope_mut().code.instructions.push(instruction);
   }
 
-  fn emit_jump(&mut self, op: Op) -> usize {
-    let idx = self.scope().code.ops.len();
-    self.emit(op);
+  fn emit_jump(&mut self, instruction: Instruction) -> usize {
+    let idx = self.scope().code.instructions.len();
+    self.emit(instruction);
     idx
   }
 
   fn patch_jump(&mut self, idx: usize) {
-    let target =
-      u16::try_from(self.scope().code.ops.len()).expect("jump target overflow");
+    let target = u16::try_from(self.scope().code.instructions.len())
+      .expect("jump target overflow");
 
-    let op = &mut self.scope_mut().code.ops[idx];
+    let instruction = &mut self.scope_mut().code.instructions[idx];
 
-    match op {
-      Op::Jump(t) | Op::PopJumpIfFalse(t) | Op::PopJumpIfTrue(t) => *t = target,
+    match instruction {
+      Instruction::Jump(t)
+      | Instruction::PopJumpIfFalse(t)
+      | Instruction::PopJumpIfTrue(t) => *t = target,
       _ => panic!("attempted to patch non-jump instruction"),
     }
   }
 
-  fn resolve_load(&mut self, name: &str) -> Op {
+  fn resolve_load(&mut self, name: &str) -> Instruction {
     if self.scope().in_function
       && let Some(idx) = self.scope().code.locals.iter().position(|n| n == name)
     {
-      return Op::LoadFast(u16::try_from(idx).expect("local table overflow"));
+      return Instruction::LoadFast(
+        u16::try_from(idx).expect("local table overflow"),
+      );
     }
 
     let idx = self.add_name(name);
 
-    Op::LoadName(idx)
+    Instruction::LoadName(idx)
   }
 
-  fn resolve_store(&mut self, name: &str) -> Op {
+  fn resolve_store(&mut self, name: &str) -> Instruction {
     if self.scope().in_function {
       let idx = self.add_local(name);
-      Op::StoreFast(idx)
+      Instruction::StoreFast(idx)
     } else {
       let idx = self.add_name(name);
-      Op::StoreName(idx)
+      Instruction::StoreName(idx)
     }
   }
 
@@ -494,21 +498,6 @@ impl Compiler {
 
   fn scope_mut(&mut self) -> &mut Scope {
     self.scopes.last_mut().unwrap()
-  }
-}
-
-fn operator_to_binary_op(op: Operator) -> Result<Op> {
-  match op {
-    Operator::Add => Ok(Op::BinaryAdd),
-    Operator::Sub => Ok(Op::BinarySub),
-    Operator::Mult => Ok(Op::BinaryMul),
-    Operator::Div => Ok(Op::BinaryDiv),
-    Operator::FloorDiv => Ok(Op::BinaryFloorDiv),
-    Operator::Mod => Ok(Op::BinaryMod),
-    Operator::Pow => Ok(Op::BinaryPow),
-    _ => Err(Error::UnsupportedSyntax {
-      message: format!("operator: {}", op.as_str()),
-    }),
   }
 }
 
@@ -534,7 +523,10 @@ mod tests {
   fn assign_int() {
     let code = compile("foo = 42\n");
 
-    assert_eq!(code.ops, [Op::LoadConst(0), Op::StoreName(0)]);
+    assert_eq!(
+      code.instructions,
+      [Instruction::LoadConst(0), Instruction::StoreName(0)]
+    );
     assert_eq!(code.constants[0], Object::Int(42));
     assert_eq!(code.names[0], "foo");
   }
@@ -542,12 +534,12 @@ mod tests {
   #[test]
   fn aug_assign() {
     assert_eq!(
-      compile("foo += 1\n").ops,
+      compile("foo += 1\n").instructions,
       [
-        Op::LoadName(0),
-        Op::LoadConst(0),
-        Op::BinaryAdd,
-        Op::StoreName(0),
+        Instruction::LoadName(0),
+        Instruction::LoadConst(0),
+        Instruction::BinaryAdd,
+        Instruction::StoreName(0),
       ]
     );
   }
@@ -555,12 +547,12 @@ mod tests {
   #[test]
   fn binary_add() {
     assert_eq!(
-      compile("foo = 1 + 2\n").ops,
+      compile("foo = 1 + 2\n").instructions,
       [
-        Op::LoadConst(0),
-        Op::LoadConst(1),
-        Op::BinaryAdd,
-        Op::StoreName(0),
+        Instruction::LoadConst(0),
+        Instruction::LoadConst(1),
+        Instruction::BinaryAdd,
+        Instruction::StoreName(0),
       ]
     );
   }
@@ -568,14 +560,14 @@ mod tests {
   #[test]
   fn bool_op_and() {
     assert_eq!(
-      compile("foo and bar\n").ops,
+      compile("foo and bar\n").instructions,
       [
-        Op::LoadName(0),
-        Op::Dup,
-        Op::PopJumpIfFalse(5),
-        Op::Pop,
-        Op::LoadName(1),
-        Op::Pop,
+        Instruction::LoadName(0),
+        Instruction::Dup,
+        Instruction::PopJumpIfFalse(5),
+        Instruction::Pop,
+        Instruction::LoadName(1),
+        Instruction::Pop,
       ]
     );
   }
@@ -583,26 +575,34 @@ mod tests {
   #[test]
   fn comparison() {
     assert_eq!(
-      compile("foo < bar\n").ops,
-      [Op::LoadName(0), Op::LoadName(1), Op::CompareLt, Op::Pop]
+      compile("foo < bar\n").instructions,
+      [
+        Instruction::LoadName(0),
+        Instruction::LoadName(1),
+        Instruction::CompareLt,
+        Instruction::Pop
+      ]
     );
   }
 
   #[test]
   fn expression_statement() {
-    assert_eq!(compile("42\n").ops, [Op::LoadConst(0), Op::Pop]);
+    assert_eq!(
+      compile("42\n").instructions,
+      [Instruction::LoadConst(0), Instruction::Pop]
+    );
   }
 
   #[test]
   fn function_call() {
     assert_eq!(
-      compile("foo(bar, baz)\n").ops,
+      compile("foo(bar, baz)\n").instructions,
       [
-        Op::LoadName(0),
-        Op::LoadName(1),
-        Op::LoadName(2),
-        Op::CallFunction(2),
-        Op::Pop,
+        Instruction::LoadName(0),
+        Instruction::LoadName(1),
+        Instruction::LoadName(2),
+        Instruction::CallFunction(2),
+        Instruction::Pop,
       ]
     );
   }
@@ -611,7 +611,10 @@ mod tests {
   fn function_def() {
     let code = compile("def foo(bar):\n    return bar\n");
 
-    assert_eq!(code.ops, [Op::MakeFunction(0), Op::StoreName(0)]);
+    assert_eq!(
+      code.instructions,
+      [Instruction::MakeFunction(0), Instruction::StoreName(0)]
+    );
 
     let func = match &code.constants[0] {
       Object::Function { name, params, code } => {
@@ -622,22 +625,25 @@ mod tests {
       _ => panic!("expected Function"),
     };
 
-    assert_eq!(func.ops, [Op::LoadFast(0), Op::Return]);
+    assert_eq!(
+      func.instructions,
+      [Instruction::LoadFast(0), Instruction::Return]
+    );
     assert_eq!(func.locals, ["bar"]);
   }
 
   #[test]
   fn if_else() {
     assert_eq!(
-      compile("if foo:\n    bar = 1\nelse:\n    bar = 2\n").ops,
+      compile("if foo:\n    bar = 1\nelse:\n    bar = 2\n").instructions,
       [
-        Op::LoadName(0),
-        Op::PopJumpIfFalse(5),
-        Op::LoadConst(0),
-        Op::StoreName(1),
-        Op::Jump(7),
-        Op::LoadConst(1),
-        Op::StoreName(1),
+        Instruction::LoadName(0),
+        Instruction::PopJumpIfFalse(5),
+        Instruction::LoadConst(0),
+        Instruction::StoreName(1),
+        Instruction::Jump(7),
+        Instruction::LoadConst(1),
+        Instruction::StoreName(1),
       ]
     );
   }
@@ -645,12 +651,12 @@ mod tests {
   #[test]
   fn if_statement() {
     assert_eq!(
-      compile("if foo:\n    bar = 1\n").ops,
+      compile("if foo:\n    bar = 1\n").instructions,
       [
-        Op::LoadName(0),
-        Op::PopJumpIfFalse(4),
-        Op::LoadConst(0),
-        Op::StoreName(1),
+        Instruction::LoadName(0),
+        Instruction::PopJumpIfFalse(4),
+        Instruction::LoadConst(0),
+        Instruction::StoreName(1),
       ]
     );
   }
@@ -658,12 +664,12 @@ mod tests {
   #[test]
   fn multi_assign() {
     assert_eq!(
-      compile("foo = bar = 1\n").ops,
+      compile("foo = bar = 1\n").instructions,
       [
-        Op::LoadConst(0),
-        Op::Dup,
-        Op::StoreName(0),
-        Op::StoreName(1)
+        Instruction::LoadConst(0),
+        Instruction::Dup,
+        Instruction::StoreName(0),
+        Instruction::StoreName(1)
       ]
     );
   }
@@ -671,14 +677,14 @@ mod tests {
   #[test]
   fn ternary() {
     assert_eq!(
-      compile("foo if bar else baz\n").ops,
+      compile("foo if bar else baz\n").instructions,
       [
-        Op::LoadName(0),
-        Op::PopJumpIfFalse(4),
-        Op::LoadName(1),
-        Op::Jump(5),
-        Op::LoadName(2),
-        Op::Pop,
+        Instruction::LoadName(0),
+        Instruction::PopJumpIfFalse(4),
+        Instruction::LoadName(1),
+        Instruction::Jump(5),
+        Instruction::LoadName(2),
+        Instruction::Pop,
       ]
     );
   }
@@ -686,21 +692,25 @@ mod tests {
   #[test]
   fn unary_neg() {
     assert_eq!(
-      compile("-foo\n").ops,
-      [Op::LoadName(0), Op::UnaryNeg, Op::Pop]
+      compile("-foo\n").instructions,
+      [
+        Instruction::LoadName(0),
+        Instruction::UnaryNeg,
+        Instruction::Pop
+      ]
     );
   }
 
   #[test]
   fn while_loop() {
     assert_eq!(
-      compile("while foo:\n    bar = 1\n").ops,
+      compile("while foo:\n    bar = 1\n").instructions,
       [
-        Op::LoadName(0),
-        Op::PopJumpIfFalse(5),
-        Op::LoadConst(0),
-        Op::StoreName(1),
-        Op::Jump(0),
+        Instruction::LoadName(0),
+        Instruction::PopJumpIfFalse(5),
+        Instruction::LoadConst(0),
+        Instruction::StoreName(1),
+        Instruction::Jump(0),
       ]
     );
   }

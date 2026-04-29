@@ -26,16 +26,16 @@ impl Machine<Stdout> {
 }
 
 impl<W: Write> Machine<W> {
-  fn binary_op(
+  fn binary_operation(
     &mut self,
-    op: fn(&Object, &Object) -> Result<Object>,
+    operation: fn(&Object, &Object) -> Result<Object>,
   ) -> Result<()> {
     let frame = self.frames.last_mut().unwrap();
 
     let rhs = frame.stack.pop().unwrap();
     let lhs = frame.stack.pop().unwrap();
 
-    let result = op(&lhs, &rhs)?;
+    let result = operation(&lhs, &rhs)?;
 
     self.frames.last_mut().unwrap().stack.push(result);
 
@@ -151,39 +151,46 @@ impl<W: Write> Machine<W> {
     self.run_loop()
   }
 
-  fn execute_op(&mut self, op: Op) -> Result<Option<Object>> {
-    match op {
-      Op::BinaryAdd => self.binary_op(Object::binary_add)?,
-      Op::BinaryDiv => self.binary_op(Object::binary_div)?,
-      Op::BinaryFloorDiv => self.binary_op(Object::binary_floor_div)?,
-      Op::BinaryMod => self.binary_op(Object::binary_mod)?,
-      Op::BinaryMul => self.binary_op(Object::binary_mul)?,
-      Op::BinaryPow => self.binary_op(Object::binary_pow)?,
-      Op::BinarySub => self.binary_op(Object::binary_sub)?,
-      Op::BuildString(count) => self.build_string(count),
-      Op::CallFunction(argc) => self.call_function(argc)?,
-      Op::CompareEq => self.compare_eq(),
-      Op::CompareGe => self.binary_op(Object::compare_ge)?,
-      Op::CompareGt => self.binary_op(Object::compare_gt)?,
-      Op::CompareLe => self.binary_op(Object::compare_le)?,
-      Op::CompareLt => self.binary_op(Object::compare_lt)?,
-      Op::CompareNe => self.compare_ne(),
-      Op::Dup => self.dup(),
-      Op::Jump(target) => self.jump(target),
-      Op::LoadConst(idx) | Op::MakeFunction(idx) => self.load_const(idx),
-      Op::LoadFast(idx) => self.load_fast(idx)?,
-      Op::LoadName(idx) => self.load_name(idx)?,
-      Op::Pop => {
+  fn execute_instruction(
+    &mut self,
+    instruction: Instruction,
+  ) -> Result<Option<Object>> {
+    match instruction {
+      Instruction::BinaryAdd => self.binary_operation(Object::binary_add)?,
+      Instruction::BinaryDiv => self.binary_operation(Object::binary_div)?,
+      Instruction::BinaryFloorDiv => {
+        self.binary_operation(Object::binary_floor_div)?;
+      }
+      Instruction::BinaryMod => self.binary_operation(Object::binary_mod)?,
+      Instruction::BinaryMul => self.binary_operation(Object::binary_mul)?,
+      Instruction::BinaryPow => self.binary_operation(Object::binary_pow)?,
+      Instruction::BinarySub => self.binary_operation(Object::binary_sub)?,
+      Instruction::BuildString(count) => self.build_string(count),
+      Instruction::CallFunction(argc) => self.call_function(argc)?,
+      Instruction::CompareEq => self.compare_eq(),
+      Instruction::CompareGe => self.binary_operation(Object::compare_ge)?,
+      Instruction::CompareGt => self.binary_operation(Object::compare_gt)?,
+      Instruction::CompareLe => self.binary_operation(Object::compare_le)?,
+      Instruction::CompareLt => self.binary_operation(Object::compare_lt)?,
+      Instruction::CompareNe => self.compare_ne(),
+      Instruction::Dup => self.dup(),
+      Instruction::Jump(target) => self.jump(target),
+      Instruction::LoadConst(idx) | Instruction::MakeFunction(idx) => {
+        self.load_const(idx);
+      }
+      Instruction::LoadFast(idx) => self.load_fast(idx)?,
+      Instruction::LoadName(idx) => self.load_name(idx)?,
+      Instruction::Pop => {
         self.frames.last_mut().unwrap().stack.pop();
       }
-      Op::PopJumpIfFalse(target) => self.pop_jump_if_false(target),
-      Op::PopJumpIfTrue(target) => self.pop_jump_if_true(target),
-      Op::Return => return Ok(self.finish_frame()),
-      Op::StoreFast(idx) => self.store_fast(idx),
-      Op::StoreName(idx) => self.store_name(idx),
-      Op::UnaryNeg => self.unary_neg()?,
-      Op::UnaryNot => self.unary_not(),
-      Op::UnaryPos => self.unary_pos()?,
+      Instruction::PopJumpIfFalse(target) => self.pop_jump_if_false(target),
+      Instruction::PopJumpIfTrue(target) => self.pop_jump_if_true(target),
+      Instruction::Return => return Ok(self.finish_frame()),
+      Instruction::StoreFast(idx) => self.store_fast(idx),
+      Instruction::StoreName(idx) => self.store_name(idx),
+      Instruction::UnaryNeg => self.unary_neg()?,
+      Instruction::UnaryNot => self.unary_not(),
+      Instruction::UnaryPos => self.unary_pos()?,
     }
 
     Ok(None)
@@ -286,14 +293,14 @@ impl<W: Write> Machine<W> {
     Ok(())
   }
 
-  fn next_op(&mut self) -> Op {
+  fn next_instruction(&mut self) -> Instruction {
     let frame = self.frames.last().unwrap();
 
-    let op = frame.code.ops[frame.ip];
+    let instruction = frame.code.instructions[frame.ip];
 
     self.frames.last_mut().unwrap().ip += 1;
 
-    op
+    instruction
   }
 
   fn pop_jump_if_false(&mut self, target: u16) {
@@ -323,13 +330,13 @@ impl<W: Write> Machine<W> {
   fn step(&mut self) -> Result<Option<Object>> {
     let frame = self.frames.last().unwrap();
 
-    if frame.ip >= frame.code.ops.len() {
+    if frame.ip >= frame.code.instructions.len() {
       return Ok(self.finish_frame());
     }
 
-    let op = self.next_op();
+    let instruction = self.next_instruction();
 
-    self.execute_op(op)
+    self.execute_instruction(instruction)
   }
 
   fn store_fast(&mut self, idx: u16) {
