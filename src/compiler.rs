@@ -247,9 +247,9 @@ impl Compiler {
   fn compile_function_def(&mut self, node: &StmtFunctionDef) -> Result<()> {
     let params = node
       .parameters
-      .args
+      .posonlyargs
       .iter()
-      .chain(node.parameters.posonlyargs.iter())
+      .chain(node.parameters.args.iter())
       .map(|p| p.parameter.name.id.to_string())
       .collect::<Vec<_>>();
 
@@ -708,6 +708,32 @@ mod tests {
         .code(),
     })
     .names(&["foo"])
+    .run();
+  }
+
+  #[test]
+  fn function_def_positional_only_parameters() {
+    Test::new(indoc! {
+      "
+      def baz(foo, /, bar):
+        return foo - bar
+      "
+    })
+    .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
+    .constant(Object::Function {
+      name: "baz".to_owned(),
+      params: vec!["foo".to_owned(), "bar".to_owned()],
+      code: Test::default()
+        .instructions(&[
+          Instruction::LoadFast(0),
+          Instruction::LoadFast(1),
+          Instruction::BinarySub,
+          Instruction::Return,
+        ])
+        .locals(&["foo", "bar"])
+        .code(),
+    })
+    .names(&["baz"])
     .run();
   }
 
