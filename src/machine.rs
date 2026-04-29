@@ -653,4 +653,18 @@ mod tests {
     .expected_output("0\n1\n2\n")
     .run();
   }
+
+  #[test]
+  fn while_else() {
+    Test::new(indoc! {
+      "
+      while 0:
+        print('foo')
+      else:
+        print('bar')
+      "
+    })
+    .expected_output("bar\n")
+    .run();
+  }
 }

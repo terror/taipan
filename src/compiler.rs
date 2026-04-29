@@ -382,17 +382,18 @@ impl Compiler {
 
   fn compile_while(&mut self, node: &StmtWhile) -> Result {
     let start = self.code_mut().label();
-    let end = self.code_mut().label();
+    let orelse = self.code_mut().label();
 
     self.code_mut().mark(start)?;
 
     self.compile_expr(&node.test)?;
-    self.code_mut().emit_jump_if_false(end)?;
+    self.code_mut().emit_jump_if_false(orelse)?;
 
     self.compile_body(&node.body)?;
 
     self.code_mut().emit_jump(start)?;
-    self.code_mut().mark(end)?;
+    self.code_mut().mark(orelse)?;
+    self.compile_body(&node.orelse)?;
 
     Ok(())
   }
@@ -959,6 +960,31 @@ mod tests {
     ])
     .constant(Object::Int(1))
     .names(&["foo", "bar"])
+    .run();
+  }
+
+  #[test]
+  fn while_else() {
+    Test::new(indoc! {
+      "
+      while foo:
+        bar = 1
+      else:
+        baz = 2
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::PopJumpIfFalse(5),
+      Instruction::LoadConst(0),
+      Instruction::StoreName(1),
+      Instruction::Jump(0),
+      Instruction::LoadConst(1),
+      Instruction::StoreName(2),
+    ])
+    .constant(Object::Int(1))
+    .constant(Object::Int(2))
+    .names(&["foo", "bar", "baz"])
     .run();
   }
 }
