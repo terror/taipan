@@ -505,213 +505,326 @@ impl Compiler {
 mod tests {
   use {
     super::*,
+    indoc::indoc,
+    pretty_assertions::assert_eq,
     ruff_python_parser::{Mode, parse},
   };
 
-  fn compile(source: &str) -> Code {
-    Compiler::compile(
-      parse(source, Mode::Module.into())
+  #[derive(Debug, Default)]
+  struct Test {
+    constants: Vec<Object>,
+    instructions: Vec<Instruction>,
+    locals: Vec<&'static str>,
+    names: Vec<&'static str>,
+    source: &'static str,
+  }
+
+  impl Test {
+    fn code(self) -> Code {
+      Code {
+        constants: self.constants,
+        instructions: self.instructions,
+        locals: self.locals.into_iter().map(str::to_owned).collect(),
+        names: self.names.into_iter().map(str::to_owned).collect(),
+      }
+    }
+
+    fn constant(self, constant: Object) -> Self {
+      Self {
+        constants: self.constants.into_iter().chain([constant]).collect(),
+        ..self
+      }
+    }
+
+    fn instructions(self, instructions: &[Instruction]) -> Self {
+      Self {
+        instructions: instructions.to_vec(),
+        ..self
+      }
+    }
+
+    fn locals(self, locals: &[&'static str]) -> Self {
+      Self {
+        locals: locals.to_vec(),
+        ..self
+      }
+    }
+
+    fn names(self, names: &[&'static str]) -> Self {
+      Self {
+        names: names.to_vec(),
+        ..self
+      }
+    }
+
+    fn new(source: &'static str) -> Self {
+      Self {
+        source,
+        ..Self::default()
+      }
+    }
+
+    fn run(self) {
+      let module = parse(self.source, Mode::Module.into())
         .unwrap()
         .try_into_module()
-        .unwrap()
-        .syntax(),
-    )
-    .unwrap()
+        .unwrap();
+
+      assert_eq!(Compiler::compile(module.syntax()).unwrap(), self.code());
+    }
   }
 
   #[test]
   fn assign_int() {
-    let code = compile("foo = 42\n");
-
-    assert_eq!(
-      code.instructions,
-      [Instruction::LoadConst(0), Instruction::StoreName(0)]
-    );
-    assert_eq!(code.constants[0], Object::Int(42));
-    assert_eq!(code.names[0], "foo");
+    Test::new(indoc! {
+      "
+      foo = 42
+      "
+    })
+    .instructions(&[Instruction::LoadConst(0), Instruction::StoreName(0)])
+    .constant(Object::Int(42))
+    .names(&["foo"])
+    .run();
   }
 
   #[test]
   fn aug_assign() {
-    assert_eq!(
-      compile("foo += 1\n").instructions,
-      [
-        Instruction::LoadName(0),
-        Instruction::LoadConst(0),
-        Instruction::BinaryAdd,
-        Instruction::StoreName(0),
-      ]
-    );
+    Test::new(indoc! {
+      "
+      foo += 1
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::LoadConst(0),
+      Instruction::BinaryAdd,
+      Instruction::StoreName(0),
+    ])
+    .constant(Object::Int(1))
+    .names(&["foo"])
+    .run();
   }
 
   #[test]
   fn binary_add() {
-    assert_eq!(
-      compile("foo = 1 + 2\n").instructions,
-      [
-        Instruction::LoadConst(0),
-        Instruction::LoadConst(1),
-        Instruction::BinaryAdd,
-        Instruction::StoreName(0),
-      ]
-    );
+    Test::new(indoc! {
+      "
+      foo = 1 + 2
+      "
+    })
+    .instructions(&[
+      Instruction::LoadConst(0),
+      Instruction::LoadConst(1),
+      Instruction::BinaryAdd,
+      Instruction::StoreName(0),
+    ])
+    .constant(Object::Int(1))
+    .constant(Object::Int(2))
+    .names(&["foo"])
+    .run();
   }
 
   #[test]
   fn bool_op_and() {
-    assert_eq!(
-      compile("foo and bar\n").instructions,
-      [
-        Instruction::LoadName(0),
-        Instruction::Dup,
-        Instruction::PopJumpIfFalse(5),
-        Instruction::Pop,
-        Instruction::LoadName(1),
-        Instruction::Pop,
-      ]
-    );
+    Test::new(indoc! {
+      "
+      foo and bar
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::Dup,
+      Instruction::PopJumpIfFalse(5),
+      Instruction::Pop,
+      Instruction::LoadName(1),
+      Instruction::Pop,
+    ])
+    .names(&["foo", "bar"])
+    .run();
   }
 
   #[test]
   fn comparison() {
-    assert_eq!(
-      compile("foo < bar\n").instructions,
-      [
-        Instruction::LoadName(0),
-        Instruction::LoadName(1),
-        Instruction::CompareLt,
-        Instruction::Pop
-      ]
-    );
+    Test::new(indoc! {
+      "
+      foo < bar
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::LoadName(1),
+      Instruction::CompareLt,
+      Instruction::Pop,
+    ])
+    .names(&["foo", "bar"])
+    .run();
   }
 
   #[test]
   fn expression_statement() {
-    assert_eq!(
-      compile("42\n").instructions,
-      [Instruction::LoadConst(0), Instruction::Pop]
-    );
+    Test::new(indoc! {
+      "
+      42
+      "
+    })
+    .instructions(&[Instruction::LoadConst(0), Instruction::Pop])
+    .constant(Object::Int(42))
+    .run();
   }
 
   #[test]
   fn function_call() {
-    assert_eq!(
-      compile("foo(bar, baz)\n").instructions,
-      [
-        Instruction::LoadName(0),
-        Instruction::LoadName(1),
-        Instruction::LoadName(2),
-        Instruction::CallFunction(2),
-        Instruction::Pop,
-      ]
-    );
+    Test::new(indoc! {
+      "
+      foo(bar, baz)
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::LoadName(1),
+      Instruction::LoadName(2),
+      Instruction::CallFunction(2),
+      Instruction::Pop,
+    ])
+    .names(&["foo", "bar", "baz"])
+    .run();
   }
 
   #[test]
   fn function_def() {
-    let code = compile("def foo(bar):\n    return bar\n");
-
-    assert_eq!(
-      code.instructions,
-      [Instruction::MakeFunction(0), Instruction::StoreName(0)]
-    );
-
-    let func = match &code.constants[0] {
-      Object::Function { name, params, code } => {
-        assert_eq!(name, "foo");
-        assert_eq!(params, &["bar"]);
-        code.clone()
-      }
-      _ => panic!("expected Function"),
-    };
-
-    assert_eq!(
-      func.instructions,
-      [Instruction::LoadFast(0), Instruction::Return]
-    );
-    assert_eq!(func.locals, ["bar"]);
+    Test::new(indoc! {
+      "
+      def foo(bar):
+        return bar
+      "
+    })
+    .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
+    .constant(Object::Function {
+      name: "foo".to_owned(),
+      params: vec!["bar".to_owned()],
+      code: Test::default()
+        .instructions(&[Instruction::LoadFast(0), Instruction::Return])
+        .locals(&["bar"])
+        .code(),
+    })
+    .names(&["foo"])
+    .run();
   }
 
   #[test]
   fn if_else() {
-    assert_eq!(
-      compile("if foo:\n    bar = 1\nelse:\n    bar = 2\n").instructions,
-      [
-        Instruction::LoadName(0),
-        Instruction::PopJumpIfFalse(5),
-        Instruction::LoadConst(0),
-        Instruction::StoreName(1),
-        Instruction::Jump(7),
-        Instruction::LoadConst(1),
-        Instruction::StoreName(1),
-      ]
-    );
+    Test::new(indoc! {
+      "
+      if foo:
+        bar = 1
+      else:
+        bar = 2
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::PopJumpIfFalse(5),
+      Instruction::LoadConst(0),
+      Instruction::StoreName(1),
+      Instruction::Jump(7),
+      Instruction::LoadConst(1),
+      Instruction::StoreName(1),
+    ])
+    .constant(Object::Int(1))
+    .constant(Object::Int(2))
+    .names(&["foo", "bar"])
+    .run();
   }
 
   #[test]
   fn if_statement() {
-    assert_eq!(
-      compile("if foo:\n    bar = 1\n").instructions,
-      [
-        Instruction::LoadName(0),
-        Instruction::PopJumpIfFalse(4),
-        Instruction::LoadConst(0),
-        Instruction::StoreName(1),
-      ]
-    );
+    Test::new(indoc! {
+      "
+      if foo:
+        bar = 1
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::PopJumpIfFalse(4),
+      Instruction::LoadConst(0),
+      Instruction::StoreName(1),
+    ])
+    .constant(Object::Int(1))
+    .names(&["foo", "bar"])
+    .run();
   }
 
   #[test]
   fn multi_assign() {
-    assert_eq!(
-      compile("foo = bar = 1\n").instructions,
-      [
-        Instruction::LoadConst(0),
-        Instruction::Dup,
-        Instruction::StoreName(0),
-        Instruction::StoreName(1)
-      ]
-    );
+    Test::new(indoc! {
+      "
+      foo = bar = 1
+      "
+    })
+    .instructions(&[
+      Instruction::LoadConst(0),
+      Instruction::Dup,
+      Instruction::StoreName(0),
+      Instruction::StoreName(1),
+    ])
+    .constant(Object::Int(1))
+    .names(&["foo", "bar"])
+    .run();
   }
 
   #[test]
   fn ternary() {
-    assert_eq!(
-      compile("foo if bar else baz\n").instructions,
-      [
-        Instruction::LoadName(0),
-        Instruction::PopJumpIfFalse(4),
-        Instruction::LoadName(1),
-        Instruction::Jump(5),
-        Instruction::LoadName(2),
-        Instruction::Pop,
-      ]
-    );
+    Test::new(indoc! {
+      "
+      foo if bar else baz
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::PopJumpIfFalse(4),
+      Instruction::LoadName(1),
+      Instruction::Jump(5),
+      Instruction::LoadName(2),
+      Instruction::Pop,
+    ])
+    .names(&["bar", "foo", "baz"])
+    .run();
   }
 
   #[test]
   fn unary_neg() {
-    assert_eq!(
-      compile("-foo\n").instructions,
-      [
-        Instruction::LoadName(0),
-        Instruction::UnaryNeg,
-        Instruction::Pop
-      ]
-    );
+    Test::new(indoc! {
+      "
+      -foo
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::UnaryNeg,
+      Instruction::Pop,
+    ])
+    .names(&["foo"])
+    .run();
   }
 
   #[test]
   fn while_loop() {
-    assert_eq!(
-      compile("while foo:\n    bar = 1\n").instructions,
-      [
-        Instruction::LoadName(0),
-        Instruction::PopJumpIfFalse(5),
-        Instruction::LoadConst(0),
-        Instruction::StoreName(1),
-        Instruction::Jump(0),
-      ]
-    );
+    Test::new(indoc! {
+      "
+      while foo:
+        bar = 1
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::PopJumpIfFalse(5),
+      Instruction::LoadConst(0),
+      Instruction::StoreName(1),
+      Instruction::Jump(0),
+    ])
+    .constant(Object::Int(1))
+    .names(&["foo", "bar"])
+    .run();
   }
 }

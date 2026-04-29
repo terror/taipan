@@ -343,6 +343,18 @@ impl PartialEq for Object {
       (Self::Int(a), Self::Float(b)) => a.to_f64().is_some_and(|a| a == *b),
       (Self::Float(a), Self::Int(b)) => b.to_f64().is_some_and(|b| *a == b),
       (Self::Bool(a), Self::Bool(b)) => a == b,
+      (
+        Self::Function {
+          name: a_name,
+          params: a_params,
+          code: a_code,
+        },
+        Self::Function {
+          name: b_name,
+          params: b_params,
+          code: b_code,
+        },
+      ) => a_name == b_name && a_params == b_params && a_code == b_code,
       (Self::Str(a), Self::Str(b)) => a == b,
       (Self::None, Self::None) => true,
       _ => false,
