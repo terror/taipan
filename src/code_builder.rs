@@ -66,10 +66,6 @@ impl CodeBuilder {
     &self.code.instructions
   }
 
-  pub(crate) fn locals(&self) -> &[String] {
-    &self.code.locals
-  }
-
   pub(crate) fn patch_jump(&mut self, idx: usize) -> Result {
     let target =
       Self::index(self.code.instructions.len(), "jump target overflow")?;

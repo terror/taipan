@@ -6,9 +6,10 @@ use {
   num_traits::ToPrimitive,
   operator_ext::OperatorExt,
   ruff_python_ast::{
-    BoolOp, CmpOp, Expr, ExprBoolOp, ExprCall, ExprCompare, ExprNumberLiteral,
-    ModModule, Number, Operator, Stmt, StmtAssign, StmtAugAssign,
-    StmtFunctionDef, StmtIf, StmtReturn, StmtWhile, UnaryOp,
+    Alias, BoolOp, CmpOp, ExceptHandler, Expr, ExprBoolOp, ExprCall,
+    ExprCompare, ExprNumberLiteral, ModModule, Number, Operator, Parameters,
+    Stmt, StmtAssign, StmtAugAssign, StmtFunctionDef, StmtIf, StmtReturn,
+    StmtWhile, UnaryOp,
   },
   ruff_python_parser::ParseError,
   scope::{Scope, ScopeStack},

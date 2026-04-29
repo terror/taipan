@@ -213,7 +213,7 @@ impl Compiler {
       .map(|argument| argument.parameter.name.id.to_string())
       .collect::<Vec<_>>();
 
-    let symbols = SymbolTable::function(&parameters, &node.body)?;
+    let symbols = SymbolTable::function(&node.parameters, &node.body)?;
 
     self.scopes.enter_function(symbols);
 
@@ -410,21 +410,14 @@ impl Compiler {
   fn resolve_load(&mut self, name: &str) -> Result<Instruction> {
     match self.scope().symbols.resolve(name) {
       Symbol::Local => {
-        let index = self
-          .scope()
-          .code
-          .locals()
-          .iter()
-          .position(|local_name| local_name == name)
-          .ok_or_else(|| Error::Compile {
-            message: format!("missing local: {name}"),
+        let index =
+          self.scope().symbols.local_index(name).ok_or_else(|| {
+            Error::Compile {
+              message: format!("missing local: {name}"),
+            }
           })?;
 
-        Ok(Instruction::LoadFast(u16::try_from(index).map_err(
-          |_| Error::Compile {
-            message: "local table overflow".into(),
-          },
-        )?))
+        Ok(Instruction::LoadFast(index))
       }
       Symbol::Global | Symbol::Name => {
         Ok(Instruction::LoadName(self.code_mut().add_name(name)?))
@@ -441,7 +434,14 @@ impl Compiler {
         Ok(Instruction::StoreName(self.code_mut().add_name(name)?))
       }
       Symbol::Local => {
-        Ok(Instruction::StoreFast(self.code_mut().add_local(name)?))
+        let index =
+          self.scope().symbols.local_index(name).ok_or_else(|| {
+            Error::Compile {
+              message: format!("missing local: {name}"),
+            }
+          })?;
+
+        Ok(Instruction::StoreFast(index))
       }
       Symbol::Nonlocal => Err(Error::UnsupportedSyntax {
         message: "nonlocal (not yet implemented)".into(),
