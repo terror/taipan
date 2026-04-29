@@ -1,8 +1,7 @@
 use super::*;
 
 pub struct Compiler {
-  scope: Scope,
-  scopes: Vec<Scope>,
+  scopes: ScopeStack,
 }
 
 impl Compiler {
@@ -23,16 +22,12 @@ impl Compiler {
     let symbols = SymbolTable::module(&module.body)?;
 
     let mut compiler = Self {
-      scope: Scope {
-        code: CodeBuilder::default(),
-        symbols,
-      },
-      scopes: Vec::new(),
+      scopes: ScopeStack::module(symbols),
     };
 
     compiler.compile_body(&module.body)?;
 
-    Ok(compiler.scope.code.finish())
+    compiler.scopes.finish()
   }
 
   fn compile_assign(&mut self, node: &StmtAssign) -> Result<()> {
@@ -220,15 +215,7 @@ impl Compiler {
 
     let symbols = SymbolTable::function(&parameters, &node.body)?;
 
-    let scope = std::mem::replace(
-      &mut self.scope,
-      Scope {
-        code: CodeBuilder::default(),
-        symbols,
-      },
-    );
-
-    self.scopes.push(scope);
+    self.scopes.enter_function(symbols);
 
     for local in self.scope().symbols.locals().to_vec() {
       self.code_mut().add_local(&local)?;
@@ -248,11 +235,7 @@ impl Compiler {
       self.code_mut().emit(Instruction::Return);
     }
 
-    let scope = self.scopes.pop().ok_or_else(|| Error::Compile {
-      message: "missing compiler scope".into(),
-    })?;
-
-    let function_code = mem::replace(&mut self.scope, scope).code.finish();
+    let function_code = self.scopes.exit_scope()?;
 
     let name = node.name.id.to_string();
 
@@ -467,11 +450,11 @@ impl Compiler {
   }
 
   fn scope(&self) -> &Scope {
-    &self.scope
+    self.scopes.current()
   }
 
   fn scope_mut(&mut self) -> &mut Scope {
-    &mut self.scope
+    self.scopes.current_mut()
   }
 }
 
