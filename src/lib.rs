@@ -19,6 +19,7 @@ use {
 mod code;
 mod compiler;
 mod error;
+mod expr_ext;
 mod frame;
 mod machine;
 mod object;
@@ -37,4 +38,5 @@ pub use {
   op::Op,
 };
 
+pub(crate) use expr_ext::ExprExt;
 pub(crate) use stmt_ext::StmtExt;
