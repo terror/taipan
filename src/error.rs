@@ -5,6 +5,8 @@ use super::*;
 pub enum Error {
   #[snafu(display("CompileError: {message}"))]
   Compile { message: String },
+  #[snafu(display("IOError: {source}"))]
+  Io { source: io::Error },
   #[snafu(display("NameError: name '{name}' is not defined"))]
   NameError { name: String },
   #[snafu(display("OverflowError: integer overflow"))]

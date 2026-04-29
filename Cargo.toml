@@ -3,36 +3,21 @@ name = "taipan"
 version = "0.1.0"
 edition = "2024"
 
-[lints.rust]
-mismatched_lifetime_syntaxes = "allow"
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(fuzzing)'] }
+[dependencies]
+num-traits = "0.2.19"
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff", version = "0.0.0" }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff", version = "0.0.0" }
+snafu = "0.9.0"
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }
 arbitrary-source-item-ordering = "deny"
-cast-possible-truncation = "allow"
-cast-precision-loss = "allow"
-cast-possible-wrap = "allow"
-cast-sign-loss = "allow"
-missing-errors-doc = "allow"
-missing-panics-doc = "allow"
-must-use-candidate = "allow"
-return-self-not-must-use = "allow"
-enum_glob_use = "allow"
-ignore_without_reason = "allow"
-needless_pass_by_value = "allow"
 pedantic = { level = "deny", priority = -1 }
-similar_names = "allow"
-struct_excessive_bools = "allow"
-struct_field_names = "allow"
-too_many_arguments = "allow"
-too_many_lines = "allow"
-type_complexity = "allow"
-undocumented_unsafe_blocks = "deny"
-unnecessary_wraps = "allow"
 wildcard_imports = "allow"
 
-[dependencies]
-ruff_python_ast = { git = "https://github.com/astral-sh/ruff", version = "0.0.0" }
-ruff_python_parser = { git = "https://github.com/astral-sh/ruff", version = "0.0.0" }
-snafu = "0.9.0"
+[lints.rust]
+unreachable_pub = "deny"
+
+[profile.release]
+lto = true
+codegen-units = 1

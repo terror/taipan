@@ -1,6 +1,3 @@
-#[allow(unused_imports)]
-use super::*;
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Op {
   BinaryAdd,

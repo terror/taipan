@@ -1,4 +1,6 @@
 use {
+  frame::Frame,
+  num_traits::ToPrimitive,
   ruff_python_ast::{
     BoolOp, CmpOp, Expr, ExprBoolOp, ExprCall, ExprCompare, ExprNumberLiteral,
     ModModule, Number, Operator, Stmt, StmtAssign, StmtAugAssign,

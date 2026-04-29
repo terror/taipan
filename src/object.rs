@@ -23,25 +23,25 @@ pub enum Object {
 }
 
 impl Object {
-  pub fn binary_add(&self, rhs: &Self) -> Result<Self> {
+  pub(crate) fn binary_add(&self, rhs: &Self) -> Result<Self> {
     match (self, rhs) {
       (Self::Int(a), Self::Int(b)) => {
         a.checked_add(*b).map(Self::Int).ok_or(Error::Overflow)
       }
       (Self::Float(a), Self::Float(b)) => Ok(Self::Float(a + b)),
-      (Self::Int(a), Self::Float(b)) => Ok(Self::Float(*a as f64 + b)),
-      (Self::Float(a), Self::Int(b)) => Ok(Self::Float(a + *b as f64)),
+      (Self::Int(a), Self::Float(b)) => Ok(Self::Float(int_to_float(*a)? + b)),
+      (Self::Float(a), Self::Int(b)) => Ok(Self::Float(a + int_to_float(*b)?)),
       (Self::Str(a), Self::Str(b)) => Ok(Self::Str(format!("{a}{b}"))),
       _ => Err(self.binary_type_error("+", rhs)),
     }
   }
 
-  pub fn binary_div(&self, rhs: &Self) -> Result<Self> {
+  pub(crate) fn binary_div(&self, rhs: &Self) -> Result<Self> {
     let (a, b) = match (self, rhs) {
-      (Self::Int(a), Self::Int(b)) => (*a as f64, *b as f64),
+      (Self::Int(a), Self::Int(b)) => (int_to_float(*a)?, int_to_float(*b)?),
       (Self::Float(a), Self::Float(b)) => (*a, *b),
-      (Self::Int(a), Self::Float(b)) => (*a as f64, *b),
-      (Self::Float(a), Self::Int(b)) => (*a, *b as f64),
+      (Self::Int(a), Self::Float(b)) => (int_to_float(*a)?, *b),
+      (Self::Float(a), Self::Int(b)) => (*a, int_to_float(*b)?),
       _ => return Err(self.binary_type_error("/", rhs)),
     };
 
@@ -54,7 +54,7 @@ impl Object {
     Ok(Self::Float(a / b))
   }
 
-  pub fn binary_floor_div(&self, rhs: &Self) -> Result<Self> {
+  pub(crate) fn binary_floor_div(&self, rhs: &Self) -> Result<Self> {
     match (self, rhs) {
       (Self::Int(a), Self::Int(b)) => {
         if *b == 0 {
@@ -81,7 +81,7 @@ impl Object {
           });
         }
 
-        Ok(Self::Float((*a as f64 / b).floor()))
+        Ok(Self::Float((int_to_float(*a)? / b).floor()))
       }
       (Self::Float(a), Self::Int(b)) => {
         if *b == 0 {
@@ -90,13 +90,13 @@ impl Object {
           });
         }
 
-        Ok(Self::Float((a / *b as f64).floor()))
+        Ok(Self::Float((a / int_to_float(*b)?).floor()))
       }
       _ => Err(self.binary_type_error("//", rhs)),
     }
   }
 
-  pub fn binary_mod(&self, rhs: &Self) -> Result<Self> {
+  pub(crate) fn binary_mod(&self, rhs: &Self) -> Result<Self> {
     match (self, rhs) {
       (Self::Int(a), Self::Int(b)) => {
         if *b == 0 {
@@ -123,7 +123,7 @@ impl Object {
           });
         }
 
-        Ok(Self::Float(*a as f64 % b))
+        Ok(Self::Float(int_to_float(*a)? % b))
       }
       (Self::Float(a), Self::Int(b)) => {
         if *b == 0 {
@@ -132,29 +132,29 @@ impl Object {
           });
         }
 
-        Ok(Self::Float(a % *b as f64))
+        Ok(Self::Float(a % int_to_float(*b)?))
       }
       _ => Err(self.binary_type_error("%", rhs)),
     }
   }
 
-  pub fn binary_mul(&self, rhs: &Self) -> Result<Self> {
+  pub(crate) fn binary_mul(&self, rhs: &Self) -> Result<Self> {
     match (self, rhs) {
       (Self::Int(a), Self::Int(b)) => {
         a.checked_mul(*b).map(Self::Int).ok_or(Error::Overflow)
       }
       (Self::Float(a), Self::Float(b)) => Ok(Self::Float(a * b)),
-      (Self::Int(a), Self::Float(b)) => Ok(Self::Float(*a as f64 * b)),
-      (Self::Float(a), Self::Int(b)) => Ok(Self::Float(a * *b as f64)),
+      (Self::Int(a), Self::Float(b)) => Ok(Self::Float(int_to_float(*a)? * b)),
+      (Self::Float(a), Self::Int(b)) => Ok(Self::Float(a * int_to_float(*b)?)),
       _ => Err(self.binary_type_error("*", rhs)),
     }
   }
 
-  pub fn binary_pow(&self, rhs: &Self) -> Result<Self> {
+  pub(crate) fn binary_pow(&self, rhs: &Self) -> Result<Self> {
     match (self, rhs) {
       (Self::Int(a), Self::Int(b)) => {
         if *b < 0 {
-          Ok(Self::Float((*a as f64).powi(*b as i32)))
+          Ok(Self::Float(int_to_float(*a)?.powi(pow_exponent(*b)?)))
         } else {
           a.checked_pow(u32::try_from(*b).map_err(|_| Error::Overflow)?)
             .map(Self::Int)
@@ -162,20 +162,24 @@ impl Object {
         }
       }
       (Self::Float(a), Self::Float(b)) => Ok(Self::Float(a.powf(*b))),
-      (Self::Int(a), Self::Float(b)) => Ok(Self::Float((*a as f64).powf(*b))),
-      (Self::Float(a), Self::Int(b)) => Ok(Self::Float(a.powi(*b as i32))),
+      (Self::Int(a), Self::Float(b)) => {
+        Ok(Self::Float(int_to_float(*a)?.powf(*b)))
+      }
+      (Self::Float(a), Self::Int(b)) => {
+        Ok(Self::Float(a.powi(pow_exponent(*b)?)))
+      }
       _ => Err(self.binary_type_error("**", rhs)),
     }
   }
 
-  pub fn binary_sub(&self, rhs: &Self) -> Result<Self> {
+  pub(crate) fn binary_sub(&self, rhs: &Self) -> Result<Self> {
     match (self, rhs) {
       (Self::Int(a), Self::Int(b)) => {
         a.checked_sub(*b).map(Self::Int).ok_or(Error::Overflow)
       }
       (Self::Float(a), Self::Float(b)) => Ok(Self::Float(a - b)),
-      (Self::Int(a), Self::Float(b)) => Ok(Self::Float(*a as f64 - b)),
-      (Self::Float(a), Self::Int(b)) => Ok(Self::Float(a - *b as f64)),
+      (Self::Int(a), Self::Float(b)) => Ok(Self::Float(int_to_float(*a)? - b)),
+      (Self::Float(a), Self::Int(b)) => Ok(Self::Float(a - int_to_float(*b)?)),
       _ => Err(self.binary_type_error("-", rhs)),
     }
   }
@@ -190,27 +194,27 @@ impl Object {
     }
   }
 
-  pub fn compare_eq(&self, rhs: &Self) -> Self {
+  pub(crate) fn compare_eq(&self, rhs: &Self) -> Self {
     Self::Bool(self == rhs)
   }
 
-  pub fn compare_ge(&self, rhs: &Self) -> Result<Self> {
+  pub(crate) fn compare_ge(&self, rhs: &Self) -> Result<Self> {
     self.compare_numeric(rhs, ">=", |a, b| a >= b)
   }
 
-  pub fn compare_gt(&self, rhs: &Self) -> Result<Self> {
+  pub(crate) fn compare_gt(&self, rhs: &Self) -> Result<Self> {
     self.compare_numeric(rhs, ">", |a, b| a > b)
   }
 
-  pub fn compare_le(&self, rhs: &Self) -> Result<Self> {
+  pub(crate) fn compare_le(&self, rhs: &Self) -> Result<Self> {
     self.compare_numeric(rhs, "<=", |a, b| a <= b)
   }
 
-  pub fn compare_lt(&self, rhs: &Self) -> Result<Self> {
+  pub(crate) fn compare_lt(&self, rhs: &Self) -> Result<Self> {
     self.compare_numeric(rhs, "<", |a, b| a < b)
   }
 
-  pub fn compare_ne(&self, rhs: &Self) -> Self {
+  pub(crate) fn compare_ne(&self, rhs: &Self) -> Self {
     Self::Bool(self != rhs)
   }
 
@@ -221,10 +225,10 @@ impl Object {
     cmp: fn(f64, f64) -> bool,
   ) -> Result<Self> {
     let (a, b) = match (self, rhs) {
-      (Self::Int(a), Self::Int(b)) => (*a as f64, *b as f64),
+      (Self::Int(a), Self::Int(b)) => (int_to_float(*a)?, int_to_float(*b)?),
       (Self::Float(a), Self::Float(b)) => (*a, *b),
-      (Self::Int(a), Self::Float(b)) => (*a as f64, *b),
-      (Self::Float(a), Self::Int(b)) => (*a, *b as f64),
+      (Self::Int(a), Self::Float(b)) => (int_to_float(*a)?, *b),
+      (Self::Float(a), Self::Int(b)) => (*a, int_to_float(*b)?),
       (Self::Str(a), Self::Str(b)) => return Ok(Self::Bool(cmp_str(a, b, op))),
       _ => {
         return Err(Error::TypeError {
@@ -240,7 +244,7 @@ impl Object {
     Ok(Self::Bool(cmp(a, b)))
   }
 
-  pub fn is_truthy(&self) -> bool {
+  pub(crate) fn is_truthy(&self) -> bool {
     match self {
       Self::Bool(b) => *b,
       Self::BuiltinFn(_) | Self::Function { .. } => true,
@@ -251,7 +255,7 @@ impl Object {
     }
   }
 
-  pub fn type_name(&self) -> &'static str {
+  pub(crate) fn type_name(&self) -> &'static str {
     match self {
       Self::Bool(_) => "bool",
       Self::BuiltinFn(_) => "builtin_function_or_method",
@@ -263,7 +267,7 @@ impl Object {
     }
   }
 
-  pub fn unary_neg(&self) -> Result<Self> {
+  pub(crate) fn unary_neg(&self) -> Result<Self> {
     match self {
       Self::Int(a) => a.checked_neg().map(Self::Int).ok_or(Error::Overflow),
       Self::Float(a) => Ok(Self::Float(-a)),
@@ -276,11 +280,11 @@ impl Object {
     }
   }
 
-  pub fn unary_not(&self) -> Self {
+  pub(crate) fn unary_not(&self) -> Self {
     Self::Bool(!self.is_truthy())
   }
 
-  pub fn unary_pos(&self) -> Result<Self> {
+  pub(crate) fn unary_pos(&self) -> Result<Self> {
     match self {
       Self::Int(a) => Ok(Self::Int(*a)),
       Self::Float(a) => Ok(Self::Float(*a)),
@@ -302,6 +306,14 @@ fn cmp_str(a: &str, b: &str, op: &str) -> bool {
     ">=" => a >= b,
     _ => unreachable!(),
   }
+}
+
+fn int_to_float(int: i64) -> Result<f64> {
+  int.to_f64().ok_or(Error::Overflow)
+}
+
+fn pow_exponent(int: i64) -> Result<i32> {
+  i32::try_from(int).map_err(|_| Error::Overflow)
 }
 
 impl Display for Object {
@@ -332,8 +344,8 @@ impl PartialEq for Object {
     match (self, other) {
       (Self::Int(a), Self::Int(b)) => a == b,
       (Self::Float(a), Self::Float(b)) => a == b,
-      (Self::Int(a), Self::Float(b)) => *a as f64 == *b,
-      (Self::Float(a), Self::Int(b)) => *a == *b as f64,
+      (Self::Int(a), Self::Float(b)) => a.to_f64().is_some_and(|a| a == *b),
+      (Self::Float(a), Self::Int(b)) => b.to_f64().is_some_and(|b| *a == b),
       (Self::Bool(a), Self::Bool(b)) => a == b,
       (Self::Str(a), Self::Str(b)) => a == b,
       (Self::None, Self::None) => true,
@@ -349,17 +361,21 @@ mod tests {
   #[test]
   fn binary_add() {
     #[track_caller]
-    fn case(lhs: Object, rhs: Object, expected: Object) {
-      assert_eq!(lhs.binary_add(&rhs).unwrap(), expected);
+    fn case(lhs: &Object, rhs: &Object, expected: &Object) {
+      assert_eq!(&lhs.binary_add(rhs).unwrap(), expected);
     }
 
-    case(Object::Int(1), Object::Int(2), Object::Int(3));
-    case(Object::Float(1.5), Object::Float(2.5), Object::Float(4.0));
-    case(Object::Int(1), Object::Float(2.5), Object::Float(3.5));
+    case(&Object::Int(1), &Object::Int(2), &Object::Int(3));
     case(
-      Object::Str("foo".into()),
-      Object::Str("bar".into()),
-      Object::Str("foobar".into()),
+      &Object::Float(1.5),
+      &Object::Float(2.5),
+      &Object::Float(4.0),
+    );
+    case(&Object::Int(1), &Object::Float(2.5), &Object::Float(3.5));
+    case(
+      &Object::Str("foo".into()),
+      &Object::Str("bar".into()),
+      &Object::Str("foobar".into()),
     );
   }
 
@@ -453,34 +469,34 @@ mod tests {
   #[test]
   fn display() {
     #[track_caller]
-    fn case(obj: Object, expected: &str) {
+    fn case(obj: &Object, expected: &str) {
       assert_eq!(obj.to_string(), expected);
     }
 
-    case(Object::None, "None");
-    case(Object::Bool(true), "True");
-    case(Object::Bool(false), "False");
-    case(Object::Int(42), "42");
-    case(Object::Float(3.0), "3.0");
-    case(Object::Float(1.5), "1.5");
-    case(Object::Str("foo".into()), "foo");
+    case(&Object::None, "None");
+    case(&Object::Bool(true), "True");
+    case(&Object::Bool(false), "False");
+    case(&Object::Int(42), "42");
+    case(&Object::Float(3.0), "3.0");
+    case(&Object::Float(1.5), "1.5");
+    case(&Object::Str("foo".into()), "foo");
   }
 
   #[test]
   fn truthiness() {
     #[track_caller]
-    fn case(obj: Object, expected: bool) {
+    fn case(obj: &Object, expected: bool) {
       assert_eq!(obj.is_truthy(), expected);
     }
 
-    case(Object::None, false);
-    case(Object::Bool(false), false);
-    case(Object::Bool(true), true);
-    case(Object::Int(0), false);
-    case(Object::Int(1), true);
-    case(Object::Float(0.0), false);
-    case(Object::Float(0.1), true);
-    case(Object::Str(String::new()), false);
-    case(Object::Str("foo".into()), true);
+    case(&Object::None, false);
+    case(&Object::Bool(false), false);
+    case(&Object::Bool(true), true);
+    case(&Object::Int(0), false);
+    case(&Object::Int(1), true);
+    case(&Object::Float(0.0), false);
+    case(&Object::Float(0.1), true);
+    case(&Object::Str(String::new()), false);
+    case(&Object::Str("foo".into()), true);
   }
 }

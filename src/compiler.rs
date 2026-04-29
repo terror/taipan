@@ -43,6 +43,11 @@ impl Compiler {
     u16::try_from(idx).expect("name table overflow")
   }
 
+  /// Compiles a parsed module into bytecode.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if the module contains unsupported syntax.
   pub fn compile(module: &ModModule) -> Result<Code> {
     let mut compiler = Self {
       scopes: vec![Scope {
@@ -53,7 +58,13 @@ impl Compiler {
 
     compiler.compile_body(&module.body)?;
 
-    Ok(compiler.scopes.pop().unwrap().code)
+    compiler
+      .scopes
+      .pop()
+      .map(|scope| scope.code)
+      .ok_or_else(|| Error::Compile {
+        message: "missing compiler scope".into(),
+      })
   }
 
   fn compile_assign(&mut self, node: &StmtAssign) -> Result<()> {
