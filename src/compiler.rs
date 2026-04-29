@@ -156,11 +156,7 @@ impl Compiler {
         Ok(())
       }
       Expr::BoolOp(node) => self.compile_bool_op(node),
-      Expr::BooleanLiteral(node) => {
-        let index = self.code_mut().add_const(Object::Bool(node.value))?;
-        self.code_mut().emit(Instruction::LoadConst(index));
-        Ok(())
-      }
+      Expr::BooleanLiteral(node) => self.emit_const(Object::Bool(node.value)),
       Expr::Call(node) => self.compile_call(node),
       Expr::Compare(node) => self.compile_compare(node),
       Expr::If(node) => {
@@ -184,20 +180,10 @@ impl Compiler {
         self.code_mut().emit(instruction);
         Ok(())
       }
-      Expr::NoneLiteral(_) => {
-        let index = self.code_mut().add_const(Object::None)?;
-        self.code_mut().emit(Instruction::LoadConst(index));
-        Ok(())
-      }
+      Expr::NoneLiteral(_) => self.emit_none(),
       Expr::NumberLiteral(node) => self.compile_number(node),
       Expr::StringLiteral(node) => {
-        let index = self
-          .code_mut()
-          .add_const(Object::Str(node.value.to_str().to_owned()))?;
-
-        self.code_mut().emit(Instruction::LoadConst(index));
-
-        Ok(())
+        self.emit_const(Object::Str(node.value.to_str().to_owned()))
       }
       Expr::UnaryOp(node) => {
         self.compile_expr(&node.operand)?;
@@ -254,8 +240,7 @@ impl Compiler {
       .is_some_and(|instruction| *instruction == Instruction::Return);
 
     if !last_is_return {
-      let index = self.code_mut().add_const(Object::None)?;
-      self.code_mut().emit(Instruction::LoadConst(index));
+      self.emit_none()?;
       self.code_mut().emit(Instruction::Return);
     }
 
@@ -353,19 +338,14 @@ impl Compiler {
       }
     };
 
-    let index = self.code_mut().add_const(object)?;
-
-    self.code_mut().emit(Instruction::LoadConst(index));
-
-    Ok(())
+    self.emit_const(object)
   }
 
   fn compile_return(&mut self, node: &StmtReturn) -> Result<()> {
     if let Some(expr) = &node.value {
       self.compile_expr(expr)?;
     } else {
-      let index = self.code_mut().add_const(Object::None)?;
-      self.code_mut().emit(Instruction::LoadConst(index));
+      self.emit_none()?;
     }
 
     self.code_mut().emit(Instruction::Return);
@@ -425,6 +405,18 @@ impl Compiler {
     self.code_mut().patch_jump(exit_jump)?;
 
     Ok(())
+  }
+
+  fn emit_const(&mut self, object: Object) -> Result<()> {
+    let index = self.code_mut().add_const(object)?;
+
+    self.code_mut().emit(Instruction::LoadConst(index));
+
+    Ok(())
+  }
+
+  fn emit_none(&mut self) -> Result<()> {
+    self.emit_const(Object::None)
   }
 
   fn resolve_load(&mut self, name: &str) -> Result<Instruction> {
