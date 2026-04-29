@@ -411,7 +411,7 @@ impl Compiler {
       Stmt::Return(node) => self.compile_return(node),
       Stmt::While(node) => self.compile_while(node),
       _ => Err(Error::UnsupportedSyntax {
-        message: format!("statement: {}", stmt_name(stmt)),
+        message: format!("statement: {}", stmt.name()),
       }),
     }
   }
@@ -547,36 +547,6 @@ fn operator_to_binary_op(op: Operator) -> Result<Op> {
     _ => Err(Error::UnsupportedSyntax {
       message: format!("operator: {}", op.as_str()),
     }),
-  }
-}
-
-fn stmt_name(stmt: &Stmt) -> &'static str {
-  match stmt {
-    Stmt::AnnAssign(_) => "AnnAssign",
-    Stmt::Assert(_) => "Assert",
-    Stmt::Assign(_) => "Assign",
-    Stmt::AugAssign(_) => "AugAssign",
-    Stmt::Break(_) => "Break",
-    Stmt::ClassDef(_) => "ClassDef",
-    Stmt::Continue(_) => "Continue",
-    Stmt::Delete(_) => "Delete",
-    Stmt::Expr(_) => "Expr",
-    Stmt::For(_) => "For",
-    Stmt::FunctionDef(_) => "FunctionDef",
-    Stmt::Global(_) => "Global",
-    Stmt::If(_) => "If",
-    Stmt::Import(_) => "Import",
-    Stmt::ImportFrom(_) => "ImportFrom",
-    Stmt::IpyEscapeCommand(_) => "IpyEscapeCommand",
-    Stmt::Match(_) => "Match",
-    Stmt::Nonlocal(_) => "Nonlocal",
-    Stmt::Pass(_) => "Pass",
-    Stmt::Raise(_) => "Raise",
-    Stmt::Return(_) => "Return",
-    Stmt::Try(_) => "Try",
-    Stmt::TypeAlias(_) => "TypeAlias",
-    Stmt::While(_) => "While",
-    Stmt::With(_) => "With",
   }
 }
 

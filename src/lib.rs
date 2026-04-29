@@ -24,6 +24,7 @@ mod machine;
 mod object;
 mod op;
 mod scope;
+mod stmt_ext;
 
 pub type Result<T = (), E = Error> = std::result::Result<T, E>;
 
@@ -35,3 +36,5 @@ pub use {
   object::{BuiltinFn, Object},
   op::Op,
 };
+
+pub(crate) use stmt_ext::StmtExt;
