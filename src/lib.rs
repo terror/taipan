@@ -9,8 +9,8 @@ use {
   ruff_python_ast::{
     Alias, BoolOp, CmpOp, ExceptHandler, Expr, ExprBoolOp, ExprCall,
     ExprCompare, ExprNumberLiteral, ModModule, Number, Operator, Parameters,
-    Stmt, StmtAssign, StmtAugAssign, StmtFunctionDef, StmtIf, StmtReturn,
-    StmtWhile, UnaryOp,
+    Stmt, StmtAnnAssign, StmtAssign, StmtAugAssign, StmtFunctionDef, StmtIf,
+    StmtReturn, StmtWhile, UnaryOp,
   },
   ruff_python_parser::ParseError,
   scope::{Scope, ScopeStack},

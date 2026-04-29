@@ -26,6 +26,15 @@ impl Compiler {
     compiler.scopes.finish()
   }
 
+  fn compile_ann_assign(&mut self, node: &StmtAnnAssign) -> Result {
+    if let Some(value) = &node.value {
+      self.compile_expr(value)?;
+      self.compile_store(&node.target)?;
+    }
+
+    Ok(())
+  }
+
   fn compile_assign(&mut self, node: &StmtAssign) -> Result {
     self.compile_expr(&node.value)?;
 
@@ -330,6 +339,7 @@ impl Compiler {
 
   fn compile_stmt(&mut self, stmt: &Stmt) -> Result {
     match stmt {
+      Stmt::AnnAssign(node) => self.compile_ann_assign(node),
       Stmt::Assign(node) => self.compile_assign(node),
       Stmt::AugAssign(node) => self.compile_aug_assign(node),
       Stmt::Break(_) => Err(Error::UnsupportedSyntax {
@@ -530,6 +540,29 @@ mod tests {
     .instructions(&[Instruction::LoadConst(0), Instruction::StoreName(0)])
     .constant(Object::Int(42))
     .names(&["foo"])
+    .run();
+  }
+
+  #[test]
+  fn annotated_assign_initialized() {
+    Test::new(indoc! {
+      "
+      foo: int = 1
+      "
+    })
+    .instructions(&[Instruction::LoadConst(0), Instruction::StoreName(0)])
+    .constant(Object::Int(1))
+    .names(&["foo"])
+    .run();
+  }
+
+  #[test]
+  fn annotated_assign_uninitialized() {
+    Test::new(indoc! {
+      "
+      foo: int
+      "
+    })
     .run();
   }
 
