@@ -161,6 +161,27 @@ fn name_error() -> Result {
 }
 
 #[test]
+fn break_continue() -> Result {
+  Test::new()?
+    .program(
+      "
+      foo = 0
+      while foo < 5:
+        foo += 1
+        if foo == 2:
+          continue
+        if foo == 4:
+          break
+        print(foo)
+      else:
+        print('bar')
+      ",
+    )
+    .expected_stdout(Exact("1\n3\n"))
+    .run()
+}
+
+#[test]
 fn program_file() -> Result {
   Test::new()?
     .program(
@@ -169,6 +190,54 @@ fn program_file() -> Result {
       ",
     )
     .expected_stdout(Exact("3\n"))
+    .run()
+}
+
+#[test]
+fn break_outside_loop() -> Result {
+  Test::new()?
+    .program("break")
+    .expected_status(1)
+    .expected_stderr(Contains("CompileError: break outside loop"))
+    .run()
+}
+
+#[test]
+fn continue_outside_loop() -> Result {
+  Test::new()?
+    .program("continue")
+    .expected_status(1)
+    .expected_stderr(Contains("CompileError: continue outside loop"))
+    .run()
+}
+
+#[test]
+fn break_in_nested_function() -> Result {
+  Test::new()?
+    .program(
+      "
+      while foo:
+        def bar():
+          break
+      ",
+    )
+    .expected_status(1)
+    .expected_stderr(Contains("CompileError: break outside loop"))
+    .run()
+}
+
+#[test]
+fn continue_in_nested_function() -> Result {
+  Test::new()?
+    .program(
+      "
+      while foo:
+        def bar():
+          continue
+      ",
+    )
+    .expected_status(1)
+    .expected_stderr(Contains("CompileError: continue outside loop"))
     .run()
 }
 

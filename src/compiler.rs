@@ -91,6 +91,15 @@ impl Compiler {
     Ok(())
   }
 
+  fn compile_break(&mut self) -> Result {
+    let (break_label, _) =
+      *self.scope().loops.last().ok_or_else(|| Error::Compile {
+        message: "break outside loop".into(),
+      })?;
+
+    self.code_mut().emit_jump(break_label)
+  }
+
   fn compile_call(&mut self, node: &ExprCall) -> Result {
     if !node.arguments.keywords.is_empty() {
       return Err(Error::UnsupportedSyntax {
@@ -143,6 +152,15 @@ impl Compiler {
     self.code_mut().emit(instruction);
 
     Ok(())
+  }
+
+  fn compile_continue(&mut self) -> Result {
+    let (_, continue_label) =
+      *self.scope().loops.last().ok_or_else(|| Error::Compile {
+        message: "continue outside loop".into(),
+      })?;
+
+    self.code_mut().emit_jump(continue_label)
   }
 
   fn compile_expr(&mut self, expr: &Expr) -> Result {
@@ -309,6 +327,21 @@ impl Compiler {
     }
   }
 
+  fn compile_loop_body(
+    &mut self,
+    body: &[Stmt],
+    break_label: Label,
+    continue_label: Label,
+  ) -> Result {
+    self.scope_mut().loops.push((break_label, continue_label));
+
+    let result = self.compile_body(body);
+
+    self.scope_mut().loops.pop();
+
+    result
+  }
+
   fn compile_number(&mut self, node: &ExprNumberLiteral) -> Result {
     self.emit_const(match &node.value {
       Number::Int(int) => {
@@ -342,12 +375,8 @@ impl Compiler {
       Stmt::AnnAssign(node) => self.compile_ann_assign(node),
       Stmt::Assign(node) => self.compile_assign(node),
       Stmt::AugAssign(node) => self.compile_aug_assign(node),
-      Stmt::Break(_) => Err(Error::UnsupportedSyntax {
-        message: "break (not yet implemented)".into(),
-      }),
-      Stmt::Continue(_) => Err(Error::UnsupportedSyntax {
-        message: "continue (not yet implemented)".into(),
-      }),
+      Stmt::Break(_) => self.compile_break(),
+      Stmt::Continue(_) => self.compile_continue(),
       Stmt::Expr(node) => {
         self.compile_expr(&node.value)?;
         self.code_mut().emit(Instruction::Pop);
@@ -383,17 +412,19 @@ impl Compiler {
   fn compile_while(&mut self, node: &StmtWhile) -> Result {
     let start = self.code_mut().label();
     let orelse = self.code_mut().label();
+    let end = self.code_mut().label();
 
     self.code_mut().mark(start)?;
 
     self.compile_expr(&node.test)?;
     self.code_mut().emit_jump_if_false(orelse)?;
 
-    self.compile_body(&node.body)?;
+    self.compile_loop_body(&node.body, end, start)?;
 
     self.code_mut().emit_jump(start)?;
     self.code_mut().mark(orelse)?;
     self.compile_body(&node.orelse)?;
+    self.code_mut().mark(end)?;
 
     Ok(())
   }
