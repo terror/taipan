@@ -1,4 +1,5 @@
 use {
+  builtins::BUILTINS,
   frame::Frame,
   num_traits::ToPrimitive,
   ruff_python_ast::{
@@ -16,11 +17,14 @@ use {
   },
 };
 
+mod builtin;
+mod builtins;
 mod code;
 mod compiler;
 mod error;
 mod expr_ext;
 mod frame;
+mod function;
 mod instruction;
 mod machine;
 mod object;
@@ -31,12 +35,9 @@ mod stmt_ext;
 pub type Result<T = (), E = Error> = std::result::Result<T, E>;
 
 pub use {
-  code::Code,
-  compiler::Compiler,
-  error::Error,
-  instruction::Instruction,
-  machine::Machine,
-  object::{BuiltinFn, Object},
+  builtin::Builtin, code::Code, compiler::Compiler, error::Error,
+  function::Function, instruction::Instruction, machine::Machine,
+  object::Object,
 };
 
 pub(crate) use expr_ext::ExprExt;

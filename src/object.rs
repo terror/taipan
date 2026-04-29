@@ -1,15 +1,9 @@
 use super::*;
 
-#[derive(Clone, Debug)]
-pub struct BuiltinFn {
-  pub func: fn(&[Object]) -> Result<Object>,
-  pub name: &'static str,
-}
-
 #[derive(Clone, Debug, Default)]
 pub enum Object {
   Bool(bool),
-  BuiltinFn(BuiltinFn),
+  Builtin(Builtin),
   Float(f64),
   Function {
     name: String,
@@ -249,7 +243,7 @@ impl Object {
   pub(crate) fn is_truthy(&self) -> bool {
     match self {
       Self::Bool(b) => *b,
-      Self::BuiltinFn(_) | Self::Function { .. } => true,
+      Self::Builtin(_) | Self::Function { .. } => true,
       Self::Float(f) => *f != 0.0,
       Self::Int(i) => *i != 0,
       Self::None => false,
@@ -260,7 +254,7 @@ impl Object {
   pub(crate) fn type_name(&self) -> &'static str {
     match self {
       Self::Bool(_) => "bool",
-      Self::BuiltinFn(_) => "builtin_function_or_method",
+      Self::Builtin(_) => "builtin_function_or_method",
       Self::Float(_) => "float",
       Self::Function { .. } => "function",
       Self::Int(_) => "int",
@@ -323,8 +317,8 @@ impl Display for Object {
     match self {
       Self::Bool(true) => write!(f, "True"),
       Self::Bool(false) => write!(f, "False"),
-      Self::BuiltinFn(function) => {
-        write!(f, "<built-in function {}>", function.name)
+      Self::Builtin(builtin) => {
+        write!(f, "<built-in function {}>", builtin.name())
       }
       Self::Float(float) => {
         if float.fract() == 0.0 && float.is_finite() {

@@ -93,14 +93,9 @@ impl<W: Write> Machine<W> {
           stack: Vec::new(),
         });
       }
-      Object::BuiltinFn(bf) => {
-        if bf.name == "print" {
-          write_print(&arguments, &mut self.output)?;
-          self.frames.last_mut().unwrap().stack.push(Object::None);
-        } else {
-          let result = (bf.func)(&arguments)?;
-          self.frames.last_mut().unwrap().stack.push(result);
-        }
+      Object::Builtin(builtin) => {
+        let result = builtin.call(&arguments, &mut self.output)?;
+        self.frames.last_mut().unwrap().stack.push(result);
       }
       _ => {
         return Err(Error::TypeError {
@@ -211,45 +206,11 @@ impl<W: Write> Machine<W> {
   }
 
   fn initialize(&mut self) {
-    self.globals.insert(
-      "int".into(),
-      Object::BuiltinFn(BuiltinFn {
-        func: builtin_int,
-        name: "int",
-      }),
-    );
-
-    self.globals.insert(
-      "len".into(),
-      Object::BuiltinFn(BuiltinFn {
-        func: builtin_len,
-        name: "len",
-      }),
-    );
-
-    self.globals.insert(
-      "print".into(),
-      Object::BuiltinFn(BuiltinFn {
-        func: builtin_print,
-        name: "print",
-      }),
-    );
-
-    self.globals.insert(
-      "str".into(),
-      Object::BuiltinFn(BuiltinFn {
-        func: builtin_str,
-        name: "str",
-      }),
-    );
-
-    self.globals.insert(
-      "type".into(),
-      Object::BuiltinFn(BuiltinFn {
-        func: builtin_type,
-        name: "type",
-      }),
-    );
+    for builtin in BUILTINS {
+      self
+        .globals
+        .insert(builtin.name().into(), Object::Builtin(*builtin));
+    }
   }
 
   fn jump(&mut self, target: u16) {
@@ -399,91 +360,6 @@ impl<W: Write> Machine<W> {
 
     Ok((result, machine.output))
   }
-}
-
-fn builtin_int(args: &[Object]) -> Result<Object> {
-  if args.len() != 1 {
-    return Err(Error::TypeError {
-      message: "int() takes exactly one argument".into(),
-    });
-  }
-
-  match &args[0] {
-    Object::Int(integer) => Ok(Object::Int(*integer)),
-    Object::Float(float) => {
-      float.to_i64().map(Object::Int).ok_or(Error::Overflow)
-    }
-    Object::Bool(boolean) => Ok(Object::Int(i64::from(*boolean))),
-    Object::Str(string) => {
-      string
-        .parse::<i64>()
-        .map(Object::Int)
-        .map_err(|_| Error::TypeError {
-          message: format!("invalid literal for int(): '{string}'"),
-        })
-    }
-    _ => Err(Error::TypeError {
-      message: format!(
-        "int() argument must be a string or a number, not '{}'",
-        args[0].type_name()
-      ),
-    }),
-  }
-}
-
-fn builtin_len(args: &[Object]) -> Result<Object> {
-  if args.len() != 1 {
-    return Err(Error::TypeError {
-      message: "len() takes exactly one argument".into(),
-    });
-  }
-
-  match &args[0] {
-    Object::Str(s) => i64::try_from(s.len())
-      .map(Object::Int)
-      .map_err(|_| Error::Overflow),
-    _ => Err(Error::TypeError {
-      message: format!("object of type '{}' has no len()", args[0].type_name()),
-    }),
-  }
-}
-
-fn builtin_print(args: &[Object]) -> Result<Object> {
-  write_print(args, &mut io::stdout())?;
-  Ok(Object::None)
-}
-
-fn builtin_str(args: &[Object]) -> Result<Object> {
-  if args.len() != 1 {
-    return Err(Error::TypeError {
-      message: "str() takes exactly one argument".into(),
-    });
-  }
-
-  Ok(Object::Str(args[0].to_string()))
-}
-
-fn builtin_type(args: &[Object]) -> Result<Object> {
-  if args.len() != 1 {
-    return Err(Error::TypeError {
-      message: "type() takes exactly one argument".into(),
-    });
-  }
-
-  Ok(Object::Str(format!("<class '{}'>", args[0].type_name())))
-}
-
-fn write_print<W: Write>(arguments: &[Object], output: &mut W) -> Result<()> {
-  writeln!(
-    output,
-    "{}",
-    arguments
-      .iter()
-      .map(ToString::to_string)
-      .collect::<Vec<_>>()
-      .join(" ")
-  )
-  .map_err(|source| Error::Io { source })
 }
 
 #[cfg(test)]
