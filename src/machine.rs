@@ -30,40 +30,23 @@ impl<W: Write> Machine<W> {
     &mut self,
     operation: fn(&Object, &Object) -> Result<Object>,
   ) -> Result {
-    let frame = self.frames.last_mut().unwrap();
+    let (lhs, rhs) = self.frame_mut()?.pop2()?;
 
-    let rhs = frame.stack.pop().unwrap();
-    let lhs = frame.stack.pop().unwrap();
-
-    let result = operation(&lhs, &rhs)?;
-
-    self.frames.last_mut().unwrap().stack.push(result);
+    self.frame_mut()?.push(operation(&lhs, &rhs)?);
 
     Ok(())
   }
 
-  fn build_string(&mut self, count: u16) {
-    let frame = self.frames.last_mut().unwrap();
-
-    let start = frame.stack.len() - usize::from(count);
-
-    let parts = frame.stack[start..]
-      .iter()
-      .map(ToString::to_string)
-      .collect::<String>();
-
-    frame.stack.truncate(start);
-    frame.stack.push(Object::Str(parts));
+  fn build_string(&mut self, count: u16) -> Result {
+    self.frame_mut()?.build_string(count)
   }
 
   fn call_function(&mut self, count: u8) -> Result {
     let argument_count = usize::from(count);
 
-    let frame = self.frames.last_mut().unwrap();
+    let arguments = self.frame_mut()?.pop_arguments(count)?;
 
-    let arguments = frame.stack.split_off(frame.stack.len() - argument_count);
-
-    let function = frame.stack.pop().unwrap();
+    let function = self.frame_mut()?.pop()?;
 
     match function {
       Object::Function {
@@ -80,22 +63,11 @@ impl<W: Write> Machine<W> {
           });
         }
 
-        let mut locals = vec![None; code.locals.len()];
-
-        for (index, argument) in arguments.into_iter().enumerate() {
-          locals[index] = Some(argument);
-        }
-
-        self.frames.push(Frame {
-          code,
-          ip: 0,
-          locals,
-          stack: Vec::new(),
-        });
+        self.frames.push(Frame::with_arguments(code, arguments)?);
       }
       Object::Builtin(builtin) => {
         let result = builtin.call(&arguments, &mut self.output)?;
-        self.frames.last_mut().unwrap().stack.push(result);
+        self.frame_mut()?.push(result);
       }
       _ => {
         return Err(Error::TypeError {
@@ -107,42 +79,26 @@ impl<W: Write> Machine<W> {
     Ok(())
   }
 
-  fn compare_eq(&mut self) {
-    let frame = self.frames.last_mut().unwrap();
-
-    let rhs = frame.stack.pop().unwrap();
-    let lhs = frame.stack.pop().unwrap();
-
-    frame.stack.push(lhs.compare_eq(&rhs));
+  fn compare_eq(&mut self) -> Result {
+    let (lhs, rhs) = self.frame_mut()?.pop2()?;
+    self.frame_mut()?.push(lhs.compare_eq(&rhs));
+    Ok(())
   }
 
-  fn compare_ne(&mut self) {
-    let frame = self.frames.last_mut().unwrap();
-
-    let rhs = frame.stack.pop().unwrap();
-    let lhs = frame.stack.pop().unwrap();
-
-    frame.stack.push(lhs.compare_ne(&rhs));
+  fn compare_ne(&mut self) -> Result {
+    let (lhs, rhs) = self.frame_mut()?.pop2()?;
+    self.frame_mut()?.push(lhs.compare_ne(&rhs));
+    Ok(())
   }
 
-  fn dup(&mut self) {
-    let frame = self.frames.last_mut().unwrap();
-
-    let val = frame.stack.last().unwrap().clone();
-
-    frame.stack.push(val);
+  fn dup(&mut self) -> Result {
+    let value = self.frame()?.peek()?;
+    self.frame_mut()?.push(value);
+    Ok(())
   }
 
   fn execute(&mut self, code: Code) -> Result<Object> {
-    let locals_len = code.locals.len();
-
-    self.frames.push(Frame {
-      code,
-      ip: 0,
-      locals: vec![None; locals_len],
-      stack: Vec::new(),
-    });
-
+    self.frames.push(Frame::new(code));
     self.run_loop()
   }
 
@@ -160,49 +116,63 @@ impl<W: Write> Machine<W> {
       Instruction::BinaryMul => self.binary_operation(Object::binary_mul)?,
       Instruction::BinaryPow => self.binary_operation(Object::binary_pow)?,
       Instruction::BinarySub => self.binary_operation(Object::binary_sub)?,
-      Instruction::BuildString(count) => self.build_string(count),
+      Instruction::BuildString(count) => self.build_string(count)?,
       Instruction::CallFunction(argc) => self.call_function(argc)?,
-      Instruction::CompareEq => self.compare_eq(),
+      Instruction::CompareEq => self.compare_eq()?,
       Instruction::CompareGe => self.binary_operation(Object::compare_ge)?,
       Instruction::CompareGt => self.binary_operation(Object::compare_gt)?,
       Instruction::CompareLe => self.binary_operation(Object::compare_le)?,
       Instruction::CompareLt => self.binary_operation(Object::compare_lt)?,
-      Instruction::CompareNe => self.compare_ne(),
-      Instruction::Dup => self.dup(),
-      Instruction::Jump(target) => self.jump(target),
-      Instruction::LoadConst(idx) | Instruction::MakeFunction(idx) => {
-        self.load_const(idx);
+      Instruction::CompareNe => self.compare_ne()?,
+      Instruction::Dup => self.dup()?,
+      Instruction::Jump(target) => self.jump(target)?,
+      Instruction::LoadConst(index) | Instruction::MakeFunction(index) => {
+        self.load_const(index)?;
       }
-      Instruction::LoadFast(idx) => self.load_fast(idx)?,
-      Instruction::LoadName(idx) => self.load_name(idx)?,
+      Instruction::LoadFast(index) => self.load_fast(index)?,
+      Instruction::LoadName(index) => self.load_name(index)?,
       Instruction::Pop => {
-        self.frames.last_mut().unwrap().stack.pop();
+        self.frame_mut()?.pop()?;
       }
-      Instruction::PopJumpIfFalse(target) => self.pop_jump_if_false(target),
-      Instruction::PopJumpIfTrue(target) => self.pop_jump_if_true(target),
-      Instruction::Return => return Ok(self.finish_frame()),
-      Instruction::StoreFast(idx) => self.store_fast(idx),
-      Instruction::StoreName(idx) => self.store_name(idx),
+      Instruction::PopJumpIfFalse(target) => self.pop_jump_if_false(target)?,
+      Instruction::PopJumpIfTrue(target) => self.pop_jump_if_true(target)?,
+      Instruction::Return => return self.finish_frame(),
+      Instruction::StoreFast(index) => self.store_fast(index)?,
+      Instruction::StoreName(index) => self.store_name(index)?,
       Instruction::UnaryNeg => self.unary_neg()?,
-      Instruction::UnaryNot => self.unary_not(),
+      Instruction::UnaryNot => self.unary_not()?,
       Instruction::UnaryPos => self.unary_pos()?,
     }
 
     Ok(None)
   }
 
-  fn finish_frame(&mut self) -> Option<Object> {
-    let frame = self.frames.pop().unwrap();
+  fn finish_frame(&mut self) -> Result<Option<Object>> {
+    let frame = self.frames.pop().ok_or_else(|| Error::Internal {
+      message: "missing frame".into(),
+    })?;
 
-    let retval = frame.stack.into_iter().last().unwrap_or(Object::None);
+    let ret = frame.finish();
 
     if self.frames.is_empty() {
-      return Some(retval);
+      return Ok(Some(ret));
     }
 
-    self.frames.last_mut().unwrap().stack.push(retval);
+    self.frame_mut()?.push(ret);
 
-    None
+    Ok(None)
+  }
+
+  fn frame(&self) -> Result<&Frame> {
+    self.frames.last().ok_or_else(|| Error::Internal {
+      message: "missing frame".into(),
+    })
+  }
+
+  fn frame_mut(&mut self) -> Result<&mut Frame> {
+    self.frames.last_mut().ok_or_else(|| Error::Internal {
+      message: "missing frame".into(),
+    })
   }
 
   fn initialize(&mut self) {
@@ -213,71 +183,58 @@ impl<W: Write> Machine<W> {
     }
   }
 
-  fn jump(&mut self, target: u16) {
-    self.frames.last_mut().unwrap().ip = usize::from(target);
+  fn jump(&mut self, target: u16) -> Result {
+    self.frame_mut()?.jump(target)
   }
 
-  fn load_const(&mut self, idx: u16) {
-    let val =
-      self.frames.last().unwrap().code.constants[usize::from(idx)].clone();
-
-    self.frames.last_mut().unwrap().stack.push(val);
+  fn load_const(&mut self, index: u16) -> Result {
+    let value = self.frame()?.load_const(index)?;
+    self.frame_mut()?.push(value);
+    Ok(())
   }
 
-  fn load_fast(&mut self, idx: u16) -> Result {
-    let frame = self.frames.last_mut().unwrap();
+  fn load_fast(&mut self, index: u16) -> Result {
+    let value = self.frame()?.load_local(index)?;
+    self.frame_mut()?.push(value);
+    Ok(())
+  }
 
-    let idx = usize::from(idx);
+  fn load_name(&mut self, index: u16) -> Result {
+    let name = self.frame()?.name(index)?;
 
-    let val = frame.locals[idx]
-      .clone()
-      .ok_or_else(|| Error::UnboundLocal {
-        name: frame.code.locals[idx].clone(),
-      })?;
+    let value = self
+      .globals
+      .get(&name)
+      .ok_or(Error::NameError { name })?
+      .clone();
 
-    frame.stack.push(val);
+    self.frame_mut()?.push(value);
 
     Ok(())
   }
 
-  fn load_name(&mut self, idx: u16) -> Result {
-    let name = self.frames.last().unwrap().code.names[usize::from(idx)].clone();
+  fn next_instruction(&mut self) -> Result<Option<Instruction>> {
+    Ok(self.frame_mut()?.next_instruction())
+  }
 
-    self.frames.last_mut().unwrap().stack.push(
-      self
-        .globals
-        .get(&name)
-        .ok_or(Error::NameError { name })?
-        .clone(),
-    );
+  fn pop_jump_if_false(&mut self, target: u16) -> Result {
+    let object = self.frame_mut()?.pop()?;
+
+    if !object.is_truthy() {
+      self.frame_mut()?.jump(target)?;
+    }
 
     Ok(())
   }
 
-  fn next_instruction(&mut self) -> Instruction {
-    let frame = self.frames.last().unwrap();
+  fn pop_jump_if_true(&mut self, target: u16) -> Result {
+    let object = self.frame_mut()?.pop()?;
 
-    let instruction = frame.code.instructions[frame.ip];
-
-    self.frames.last_mut().unwrap().ip += 1;
-
-    instruction
-  }
-
-  fn pop_jump_if_false(&mut self, target: u16) {
-    let frame = self.frames.last_mut().unwrap();
-
-    if !frame.stack.pop().unwrap().is_truthy() {
-      frame.ip = usize::from(target);
+    if object.is_truthy() {
+      self.frame_mut()?.jump(target)?;
     }
-  }
 
-  fn pop_jump_if_true(&mut self, target: u16) {
-    let frame = self.frames.last_mut().unwrap();
-
-    if frame.stack.pop().unwrap().is_truthy() {
-      frame.ip = usize::from(target);
-    }
+    Ok(())
   }
 
   fn run_loop(&mut self) -> Result<Object> {
@@ -289,59 +246,48 @@ impl<W: Write> Machine<W> {
   }
 
   fn step(&mut self) -> Result<Option<Object>> {
-    let frame = self.frames.last().unwrap();
-
-    if frame.ip >= frame.code.instructions.len() {
-      return Ok(self.finish_frame());
-    }
-
-    let instruction = self.next_instruction();
+    let Some(instruction) = self.next_instruction()? else {
+      return self.finish_frame();
+    };
 
     self.execute_instruction(instruction)
   }
 
-  fn store_fast(&mut self, idx: u16) {
-    let frame = self.frames.last_mut().unwrap();
-
-    let val = frame.stack.pop().unwrap();
-
-    frame.locals[usize::from(idx)] = Some(val);
+  fn store_fast(&mut self, index: u16) -> Result {
+    let value = self.frame_mut()?.pop()?;
+    self.frame_mut()?.store_local(index, value)
   }
 
-  fn store_name(&mut self, idx: u16) {
-    let frame = self.frames.last_mut().unwrap();
+  fn store_name(&mut self, index: u16) -> Result {
+    let name = self.frame()?.name(index)?;
 
-    let name = frame.code.names[usize::from(idx)].clone();
+    let value = self.frame_mut()?.pop()?;
 
-    let val = frame.stack.pop().unwrap();
-
-    self.globals.insert(name, val);
-  }
-
-  fn unary_neg(&mut self) -> Result {
-    let frame = self.frames.last_mut().unwrap();
-
-    let val = frame.stack.pop().unwrap();
-
-    frame.stack.push(val.unary_neg()?);
+    self.globals.insert(name, value);
 
     Ok(())
   }
 
-  fn unary_not(&mut self) {
-    let frame = self.frames.last_mut().unwrap();
+  fn unary_neg(&mut self) -> Result {
+    let value = self.frame_mut()?.pop()?;
 
-    let val = frame.stack.pop().unwrap();
+    self.frame_mut()?.push(value.unary_neg()?);
 
-    frame.stack.push(val.unary_not());
+    Ok(())
+  }
+
+  fn unary_not(&mut self) -> Result {
+    let value = self.frame_mut()?.pop()?;
+
+    self.frame_mut()?.push(value.unary_not());
+
+    Ok(())
   }
 
   fn unary_pos(&mut self) -> Result {
-    let frame = self.frames.last_mut().unwrap();
+    let value = self.frame_mut()?.pop()?;
 
-    let val = frame.stack.pop().unwrap();
-
-    frame.stack.push(val.unary_pos()?);
+    self.frame_mut()?.push(value.unary_pos()?);
 
     Ok(())
   }
@@ -587,6 +533,59 @@ mod tests {
     })
     .expected_output("None\n")
     .run();
+  }
+
+  #[test]
+  fn invalid_bytecode_errors() {
+    #[track_caller]
+    fn case(code: Code, expected: &str) {
+      let result = Machine::with_output(code, Vec::new());
+
+      assert!(
+        result.unwrap_err().to_string().contains(expected),
+        "expected error to contain: `{expected}`",
+      );
+    }
+
+    case(
+      Code {
+        instructions: vec![Instruction::BinaryAdd],
+        ..Default::default()
+      },
+      "bytecode stack underflow",
+    );
+
+    case(
+      Code {
+        instructions: vec![Instruction::LoadConst(0)],
+        ..Default::default()
+      },
+      "invalid constant index",
+    );
+
+    case(
+      Code {
+        instructions: vec![Instruction::LoadFast(0)],
+        ..Default::default()
+      },
+      "invalid local index",
+    );
+
+    case(
+      Code {
+        instructions: vec![Instruction::LoadName(0)],
+        ..Default::default()
+      },
+      "invalid name index",
+    );
+
+    case(
+      Code {
+        instructions: vec![Instruction::Jump(2)],
+        ..Default::default()
+      },
+      "invalid jump target",
+    );
   }
 
   #[test]
