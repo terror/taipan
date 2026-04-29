@@ -14,6 +14,7 @@ use {
     collections::HashMap,
     fmt::{self, Display, Formatter},
     io::{self, Stdout, Write},
+    mem,
   },
 };
 
