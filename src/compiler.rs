@@ -6,11 +6,11 @@ pub struct Compiler {
 }
 
 impl Compiler {
-  fn code(&self) -> &Code {
+  fn code(&self) -> &CodeBuilder {
     &self.scope().code
   }
 
-  fn code_mut(&mut self) -> &mut Code {
+  fn code_mut(&mut self) -> &mut CodeBuilder {
     &mut self.scope_mut().code
   }
 
@@ -22,7 +22,7 @@ impl Compiler {
   pub fn compile(module: &ModModule) -> Result<Code> {
     let mut compiler = Self {
       scope: Scope {
-        code: Code::default(),
+        code: CodeBuilder::default(),
         in_function: false,
       },
       scopes: Vec::new(),
@@ -30,7 +30,7 @@ impl Compiler {
 
     compiler.compile_body(&module.body)?;
 
-    Ok(compiler.scope.code)
+    Ok(compiler.scope.code.finish())
   }
 
   fn compile_assign(&mut self, node: &StmtAssign) -> Result<()> {
@@ -219,7 +219,7 @@ impl Compiler {
     let scope = std::mem::replace(
       &mut self.scope,
       Scope {
-        code: Code::default(),
+        code: CodeBuilder::default(),
         in_function: true,
       },
     );
@@ -235,7 +235,7 @@ impl Compiler {
     let last_is_return = self
       .scope()
       .code
-      .instructions
+      .instructions()
       .last()
       .is_some_and(|instruction| *instruction == Instruction::Return);
 
@@ -248,7 +248,7 @@ impl Compiler {
       message: "missing compiler scope".into(),
     })?;
 
-    let function_code = mem::replace(&mut self.scope, scope).code;
+    let function_code = mem::replace(&mut self.scope, scope).code.finish();
 
     let name = node.name.id.to_string();
 
@@ -424,7 +424,7 @@ impl Compiler {
       && let Some(index) = self
         .scope()
         .code
-        .locals
+        .locals()
         .iter()
         .position(|local_name| local_name == name)
     {

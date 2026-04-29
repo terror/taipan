@@ -1,7 +1,10 @@
 use {
   builtins::BUILTINS,
+  code_builder::CodeBuilder,
+  expr_ext::ExprExt,
   frame::Frame,
   num_traits::ToPrimitive,
+  operator_ext::OperatorExt,
   ruff_python_ast::{
     BoolOp, CmpOp, Expr, ExprBoolOp, ExprCall, ExprCompare, ExprNumberLiteral,
     ModModule, Number, Operator, Stmt, StmtAssign, StmtAugAssign,
@@ -16,11 +19,13 @@ use {
     io::{self, Stdout, Write},
     mem,
   },
+  stmt_ext::StmtExt,
 };
 
 mod builtin;
 mod builtins;
 mod code;
+mod code_builder;
 mod compiler;
 mod error;
 mod expr_ext;
@@ -40,7 +45,3 @@ pub use {
   function::Function, instruction::Instruction, machine::Machine,
   object::Object,
 };
-
-pub(crate) use expr_ext::ExprExt;
-pub(crate) use operator_ext::OperatorExt;
-pub(crate) use stmt_ext::StmtExt;
