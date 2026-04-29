@@ -285,39 +285,37 @@ impl Compiler {
   fn compile_if(&mut self, node: &StmtIf) -> Result<()> {
     self.compile_expr(&node.test)?;
 
-    let false_jump = self.code_mut().emit_jump(Instruction::PopJumpIfFalse(0));
+    let mut next_jump =
+      Some(self.code_mut().emit_jump(Instruction::PopJumpIfFalse(0)));
 
     self.compile_body(&node.body)?;
-
-    if node.elif_else_clauses.is_empty() {
-      self.code_mut().patch_jump(false_jump)?;
-      return Ok(());
-    }
 
     let mut end_jumps = vec![];
 
     for clause in &node.elif_else_clauses {
       end_jumps.push(self.code_mut().emit_jump(Instruction::Jump(0)));
 
-      self.code_mut().patch_jump(false_jump)?;
+      if let Some(jump) = next_jump.take() {
+        self.code_mut().patch_jump(jump)?;
+      }
 
       match &clause.test {
         Some(test) => {
           self.compile_expr(test)?;
 
-          let next_false =
-            self.code_mut().emit_jump(Instruction::PopJumpIfFalse(0));
+          next_jump =
+            Some(self.code_mut().emit_jump(Instruction::PopJumpIfFalse(0)));
 
           self.compile_body(&clause.body)?;
-
-          end_jumps.push(self.code_mut().emit_jump(Instruction::Jump(0)));
-
-          self.code_mut().patch_jump(next_false)?;
         }
         None => {
           self.compile_body(&clause.body)?;
         }
       }
+    }
+
+    if let Some(jump) = next_jump {
+      self.code_mut().patch_jump(jump)?;
     }
 
     for jump in end_jumps {
@@ -698,6 +696,39 @@ mod tests {
         .code(),
     })
     .names(&["baz"])
+    .run();
+  }
+
+  #[test]
+  fn if_elif_else() {
+    Test::new(indoc! {
+      "
+      if foo:
+        bar = 1
+      elif baz:
+        bar = 2
+      else:
+        bar = 3
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::PopJumpIfFalse(5),
+      Instruction::LoadConst(0),
+      Instruction::StoreName(1),
+      Instruction::Jump(12),
+      Instruction::LoadName(2),
+      Instruction::PopJumpIfFalse(10),
+      Instruction::LoadConst(1),
+      Instruction::StoreName(1),
+      Instruction::Jump(12),
+      Instruction::LoadConst(2),
+      Instruction::StoreName(1),
+    ])
+    .constant(Object::Int(1))
+    .constant(Object::Int(2))
+    .constant(Object::Int(3))
+    .names(&["foo", "bar", "baz"])
     .run();
   }
 

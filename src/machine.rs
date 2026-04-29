@@ -453,6 +453,28 @@ print(greet("world"))
   }
 
   #[test]
+  fn if_elif_else() {
+    #[track_caller]
+    fn case(source: &str, expected: &str) {
+      let (_, output) = run(source);
+      assert_eq!(output, expected);
+    }
+
+    case(
+      "if 1:\n    print(\"foo\")\nelif 1:\n    print(\"bar\")\nelse:\n    print(\"baz\")\n",
+      "foo\n",
+    );
+    case(
+      "if 0:\n    print(\"foo\")\nelif 1:\n    print(\"bar\")\nelse:\n    print(\"baz\")\n",
+      "bar\n",
+    );
+    case(
+      "if 0:\n    print(\"foo\")\nelif 0:\n    print(\"bar\")\nelse:\n    print(\"baz\")\n",
+      "baz\n",
+    );
+  }
+
+  #[test]
   fn if_else() {
     let (_, output) =
       run("if 0:\n    print(\"foo\")\nelse:\n    print(\"bar\")\n");
