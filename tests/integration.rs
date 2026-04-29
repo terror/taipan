@@ -161,6 +161,87 @@ fn name_error() -> Result {
 }
 
 #[test]
+fn abs_builtin() -> Result {
+  Test::new()?
+    .program(
+      "
+      print(abs(-1))
+      print(abs(-1.5))
+      ",
+    )
+    .expected_stdout(Exact("1\n1.5\n"))
+    .run()
+}
+
+#[test]
+fn bool_builtin() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      print(bool(0))
+      print(bool(1))
+      print(bool(""))
+      print(bool("foo"))
+      "#,
+    )
+    .expected_stdout(Exact("False\nTrue\nFalse\nTrue\n"))
+    .run()
+}
+
+#[test]
+fn float_builtin() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      print(float(1))
+      print(float("1.5"))
+      print(float(True))
+      "#,
+    )
+    .expected_stdout(Exact("1.0\n1.5\n1.0\n"))
+    .run()
+}
+
+#[test]
+fn max_builtin() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      print(max(1, 3, 2))
+      print(max("foo", "bar"))
+      "#,
+    )
+    .expected_stdout(Exact("3\nfoo\n"))
+    .run()
+}
+
+#[test]
+fn min_builtin() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      print(min(3, 1, 2))
+      print(min("foo", "bar"))
+      "#,
+    )
+    .expected_stdout(Exact("1\nbar\n"))
+    .run()
+}
+
+#[test]
+fn repr_builtin() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      print(repr("foo"))
+      print(repr(1.5))
+      "#,
+    )
+    .expected_stdout(Exact("foo\n1.5\n"))
+    .run()
+}
+
+#[test]
 fn break_continue() -> Result {
   Test::new()?
     .program(
