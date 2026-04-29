@@ -32,7 +32,7 @@ impl ScopeStack {
       });
     }
 
-    Ok(self.scopes.pop().unwrap().code.finish())
+    self.scopes.pop().unwrap().code.finish()
   }
 
   pub(crate) fn finish(mut self) -> Result<Code> {
@@ -42,7 +42,7 @@ impl ScopeStack {
       });
     }
 
-    Ok(self.scopes.pop().unwrap().code.finish())
+    self.scopes.pop().unwrap().code.finish()
   }
 
   pub(crate) fn module(symbols: SymbolTable) -> Self {

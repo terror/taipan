@@ -29,7 +29,7 @@ impl<W: Write> Machine<W> {
   fn binary_operation(
     &mut self,
     operation: fn(&Object, &Object) -> Result<Object>,
-  ) -> Result<()> {
+  ) -> Result {
     let frame = self.frames.last_mut().unwrap();
 
     let rhs = frame.stack.pop().unwrap();
@@ -56,7 +56,7 @@ impl<W: Write> Machine<W> {
     frame.stack.push(Object::Str(parts));
   }
 
-  fn call_function(&mut self, count: u8) -> Result<()> {
+  fn call_function(&mut self, count: u8) -> Result {
     let argument_count = usize::from(count);
 
     let frame = self.frames.last_mut().unwrap();
@@ -224,7 +224,7 @@ impl<W: Write> Machine<W> {
     self.frames.last_mut().unwrap().stack.push(val);
   }
 
-  fn load_fast(&mut self, idx: u16) -> Result<()> {
+  fn load_fast(&mut self, idx: u16) -> Result {
     let frame = self.frames.last_mut().unwrap();
 
     let idx = usize::from(idx);
@@ -240,7 +240,7 @@ impl<W: Write> Machine<W> {
     Ok(())
   }
 
-  fn load_name(&mut self, idx: u16) -> Result<()> {
+  fn load_name(&mut self, idx: u16) -> Result {
     let name = self.frames.last().unwrap().code.names[usize::from(idx)].clone();
 
     self.frames.last_mut().unwrap().stack.push(
@@ -318,7 +318,7 @@ impl<W: Write> Machine<W> {
     self.globals.insert(name, val);
   }
 
-  fn unary_neg(&mut self) -> Result<()> {
+  fn unary_neg(&mut self) -> Result {
     let frame = self.frames.last_mut().unwrap();
 
     let val = frame.stack.pop().unwrap();
@@ -336,7 +336,7 @@ impl<W: Write> Machine<W> {
     frame.stack.push(val.unary_not());
   }
 
-  fn unary_pos(&mut self) -> Result<()> {
+  fn unary_pos(&mut self) -> Result {
     let frame = self.frames.last_mut().unwrap();
 
     let val = frame.stack.pop().unwrap();

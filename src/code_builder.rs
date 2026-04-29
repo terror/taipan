@@ -3,39 +3,42 @@ use super::*;
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct CodeBuilder {
   code: Code,
+  labels: Vec<Option<u16>>,
+  patches: Vec<Vec<usize>>,
 }
 
 impl CodeBuilder {
-  pub(crate) fn add_const(&mut self, obj: Object) -> Result<u16> {
-    let idx = Self::index(self.code.constants.len(), "constant pool overflow")?;
+  pub(crate) fn add_const(&mut self, object: Object) -> Result<u16> {
+    let index =
+      Self::index(self.code.constants.len(), "constant pool overflow")?;
 
-    self.code.constants.push(obj);
+    self.code.constants.push(object);
 
-    Ok(idx)
+    Ok(index)
   }
 
   pub(crate) fn add_local(&mut self, name: &str) -> Result<u16> {
-    if let Some(idx) = self.code.locals.iter().position(|n| n == name) {
-      return Self::index(idx, "local table overflow");
+    if let Some(index) = self.code.locals.iter().position(|n| n == name) {
+      return Self::index(index, "local table overflow");
     }
 
-    let idx = Self::index(self.code.locals.len(), "local table overflow")?;
+    let index = Self::index(self.code.locals.len(), "local table overflow")?;
 
     self.code.locals.push(name.to_owned());
 
-    Ok(idx)
+    Ok(index)
   }
 
   pub(crate) fn add_name(&mut self, name: &str) -> Result<u16> {
-    if let Some(idx) = self.code.names.iter().position(|n| n == name) {
-      return Self::index(idx, "name table overflow");
+    if let Some(index) = self.code.names.iter().position(|n| n == name) {
+      return Self::index(index, "name table overflow");
     }
 
-    let idx = Self::index(self.code.names.len(), "name table overflow")?;
+    let index = Self::index(self.code.names.len(), "name table overflow")?;
 
     self.code.names.push(name.to_owned());
 
-    Ok(idx)
+    Ok(index)
   }
 
   pub(crate) fn current_offset(&self) -> Result<u16> {
@@ -46,18 +49,67 @@ impl CodeBuilder {
     self.code.instructions.push(instruction);
   }
 
-  pub(crate) fn emit_jump(&mut self, instruction: Instruction) -> usize {
-    let idx = self.code.instructions.len();
-    self.emit(instruction);
-    idx
+  pub(crate) fn emit_jump(&mut self, label: Label) -> Result {
+    self.emit_labeled_jump(label, Instruction::Jump)
   }
 
-  pub(crate) fn finish(self) -> Code {
-    self.code
+  pub(crate) fn emit_jump_if_false(&mut self, label: Label) -> Result {
+    self.emit_labeled_jump(label, Instruction::PopJumpIfFalse)
   }
 
-  fn index(idx: usize, message: &str) -> Result<u16> {
-    u16::try_from(idx).map_err(|_| Error::Compile {
+  pub(crate) fn emit_jump_if_true(&mut self, label: Label) -> Result {
+    self.emit_labeled_jump(label, Instruction::PopJumpIfTrue)
+  }
+
+  fn emit_labeled_jump(
+    &mut self,
+    label: Label,
+    instruction: fn(u16) -> Instruction,
+  ) -> Result {
+    let target =
+      self
+        .labels
+        .get(label.0)
+        .copied()
+        .ok_or_else(|| Error::Compile {
+          message: "missing label".into(),
+        })?;
+
+    let unresolved = target.is_none();
+
+    let target = target.unwrap_or_default();
+
+    let index = self.code.instructions.len();
+
+    self.emit(instruction(target));
+
+    if unresolved {
+      let patches =
+        self
+          .patches
+          .get_mut(label.0)
+          .ok_or_else(|| Error::Compile {
+            message: "missing label patches".into(),
+          })?;
+
+      patches.push(index);
+    }
+
+    Ok(())
+  }
+
+  pub(crate) fn finish(self) -> Result<Code> {
+    if self.labels.iter().any(Option::is_none) {
+      return Err(Error::Compile {
+        message: "unmarked label".into(),
+      });
+    }
+
+    Ok(self.code)
+  }
+
+  fn index(index: usize, message: &str) -> Result<u16> {
+    u16::try_from(index).map_err(|_| Error::Compile {
       message: message.into(),
     })
   }
@@ -66,23 +118,56 @@ impl CodeBuilder {
     &self.code.instructions
   }
 
-  pub(crate) fn patch_jump(&mut self, idx: usize) -> Result {
-    let target =
-      Self::index(self.code.instructions.len(), "jump target overflow")?;
+  pub(crate) fn label(&mut self) -> Label {
+    let label = Label(self.labels.len());
 
+    self.labels.push(None);
+    self.patches.push(Vec::new());
+
+    label
+  }
+
+  pub(crate) fn mark(&mut self, label: Label) -> Result {
+    let target = self.current_offset()?;
+
+    let marked =
+      self.labels.get_mut(label.0).ok_or_else(|| Error::Compile {
+        message: "missing label".into(),
+      })?;
+
+    if marked.is_some() {
+      return Err(Error::Compile {
+        message: "label already marked".into(),
+      });
+    }
+
+    *marked = Some(target);
+
+    let patches = self.patches.get(label.0).ok_or_else(|| Error::Compile {
+      message: "missing label patches".into(),
+    })?;
+
+    for index in patches.clone() {
+      self.patch_jump(index, target)?;
+    }
+
+    Ok(())
+  }
+
+  fn patch_jump(&mut self, index: usize, target: u16) -> Result {
     let instruction =
       self
         .code
         .instructions
-        .get_mut(idx)
+        .get_mut(index)
         .ok_or_else(|| Error::Compile {
           message: "missing jump instruction".into(),
         })?;
 
     match instruction {
-      Instruction::Jump(t)
-      | Instruction::PopJumpIfFalse(t)
-      | Instruction::PopJumpIfTrue(t) => *t = target,
+      Instruction::Jump(jump_target)
+      | Instruction::PopJumpIfFalse(jump_target)
+      | Instruction::PopJumpIfTrue(jump_target) => *jump_target = target,
       _ => {
         return Err(Error::Compile {
           message: "attempted to patch non-jump instruction".into(),

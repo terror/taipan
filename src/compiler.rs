@@ -5,10 +5,6 @@ pub struct Compiler {
 }
 
 impl Compiler {
-  fn code(&self) -> &CodeBuilder {
-    &self.scope().code
-  }
-
   fn code_mut(&mut self) -> &mut CodeBuilder {
     &mut self.scope_mut().code
   }
@@ -30,7 +26,7 @@ impl Compiler {
     compiler.scopes.finish()
   }
 
-  fn compile_assign(&mut self, node: &StmtAssign) -> Result<()> {
+  fn compile_assign(&mut self, node: &StmtAssign) -> Result {
     self.compile_expr(&node.value)?;
 
     for (i, target) in node.targets.iter().enumerate() {
@@ -44,7 +40,7 @@ impl Compiler {
     Ok(())
   }
 
-  fn compile_aug_assign(&mut self, node: &StmtAugAssign) -> Result<()> {
+  fn compile_aug_assign(&mut self, node: &StmtAugAssign) -> Result {
     self.compile_load_target(&node.target)?;
     self.compile_expr(&node.value)?;
     self.code_mut().emit(node.op.instruction()?);
@@ -52,7 +48,7 @@ impl Compiler {
     Ok(())
   }
 
-  fn compile_body(&mut self, body: &[Stmt]) -> Result<()> {
+  fn compile_body(&mut self, body: &[Stmt]) -> Result {
     for stmt in body {
       self.compile_stmt(stmt)?;
     }
@@ -60,10 +56,10 @@ impl Compiler {
     Ok(())
   }
 
-  fn compile_bool_op(&mut self, node: &ExprBoolOp) -> Result<()> {
+  fn compile_bool_op(&mut self, node: &ExprBoolOp) -> Result {
     let is_and = matches!(node.op, BoolOp::And);
 
-    let mut jumps = vec![];
+    let end = self.code_mut().label();
 
     for (i, value) in node.values.iter().enumerate() {
       self.compile_expr(value)?;
@@ -71,26 +67,22 @@ impl Compiler {
       if i < node.values.len() - 1 {
         self.code_mut().emit(Instruction::Dup);
 
-        let jump = if is_and {
-          self.code_mut().emit_jump(Instruction::PopJumpIfFalse(0))
+        if is_and {
+          self.code_mut().emit_jump_if_false(end)?;
         } else {
-          self.code_mut().emit_jump(Instruction::PopJumpIfTrue(0))
-        };
+          self.code_mut().emit_jump_if_true(end)?;
+        }
 
         self.code_mut().emit(Instruction::Pop);
-
-        jumps.push(jump);
       }
     }
 
-    for jump in jumps {
-      self.code_mut().patch_jump(jump)?;
-    }
+    self.code_mut().mark(end)?;
 
     Ok(())
   }
 
-  fn compile_call(&mut self, node: &ExprCall) -> Result<()> {
+  fn compile_call(&mut self, node: &ExprCall) -> Result {
     if !node.arguments.keywords.is_empty() {
       return Err(Error::UnsupportedSyntax {
         message: "keyword arguments".into(),
@@ -114,7 +106,7 @@ impl Compiler {
     Ok(())
   }
 
-  fn compile_compare(&mut self, node: &ExprCompare) -> Result<()> {
+  fn compile_compare(&mut self, node: &ExprCompare) -> Result {
     if node.ops.len() != 1 {
       return Err(Error::UnsupportedSyntax {
         message: "chained comparisons".into(),
@@ -144,7 +136,7 @@ impl Compiler {
     Ok(())
   }
 
-  fn compile_expr(&mut self, expr: &Expr) -> Result<()> {
+  fn compile_expr(&mut self, expr: &Expr) -> Result {
     match expr {
       Expr::BinOp(node) => {
         self.compile_expr(&node.left)?;
@@ -157,18 +149,18 @@ impl Compiler {
       Expr::Call(node) => self.compile_call(node),
       Expr::Compare(node) => self.compile_compare(node),
       Expr::If(node) => {
-        self.compile_expr(&node.test)?;
+        let false_label = self.code_mut().label();
+        let end = self.code_mut().label();
 
-        let false_jump =
-          self.code_mut().emit_jump(Instruction::PopJumpIfFalse(0));
+        self.compile_expr(&node.test)?;
+        self.code_mut().emit_jump_if_false(false_label)?;
 
         self.compile_expr(&node.body)?;
+        self.code_mut().emit_jump(end)?;
+        self.code_mut().mark(false_label)?;
 
-        let end_jump = self.code_mut().emit_jump(Instruction::Jump(0));
-
-        self.code_mut().patch_jump(false_jump)?;
         self.compile_expr(&node.orelse)?;
-        self.code_mut().patch_jump(end_jump)?;
+        self.code_mut().mark(end)?;
 
         Ok(())
       }
@@ -204,7 +196,7 @@ impl Compiler {
     }
   }
 
-  fn compile_function_def(&mut self, node: &StmtFunctionDef) -> Result<()> {
+  fn compile_function_def(&mut self, node: &StmtFunctionDef) -> Result {
     let parameters = node
       .parameters
       .posonlyargs
@@ -254,50 +246,48 @@ impl Compiler {
     Ok(())
   }
 
-  fn compile_if(&mut self, node: &StmtIf) -> Result<()> {
-    self.compile_expr(&node.test)?;
+  fn compile_if(&mut self, node: &StmtIf) -> Result {
+    let end = self.code_mut().label();
+    let first_clause = self.code_mut().label();
 
-    let mut next_jump =
-      Some(self.code_mut().emit_jump(Instruction::PopJumpIfFalse(0)));
+    let mut next_label = Some(first_clause);
+
+    self.compile_expr(&node.test)?;
+    self.code_mut().emit_jump_if_false(first_clause)?;
 
     self.compile_body(&node.body)?;
 
-    let mut end_jumps = vec![];
-
     for clause in &node.elif_else_clauses {
-      end_jumps.push(self.code_mut().emit_jump(Instruction::Jump(0)));
+      self.code_mut().emit_jump(end)?;
 
-      if let Some(jump) = next_jump.take() {
-        self.code_mut().patch_jump(jump)?;
+      if let Some(label) = next_label {
+        self.code_mut().mark(label)?;
       }
 
-      match &clause.test {
-        Some(test) => {
-          self.compile_expr(test)?;
+      if let Some(test) = &clause.test {
+        let label = self.code_mut().label();
+        next_label = Some(label);
 
-          next_jump =
-            Some(self.code_mut().emit_jump(Instruction::PopJumpIfFalse(0)));
+        self.compile_expr(test)?;
+        self.code_mut().emit_jump_if_false(label)?;
 
-          self.compile_body(&clause.body)?;
-        }
-        None => {
-          self.compile_body(&clause.body)?;
-        }
+        self.compile_body(&clause.body)?;
+      } else {
+        next_label = None;
+        self.compile_body(&clause.body)?;
       }
     }
 
-    if let Some(jump) = next_jump {
-      self.code_mut().patch_jump(jump)?;
+    if let Some(next_label) = next_label {
+      self.code_mut().mark(next_label)?;
     }
 
-    for jump in end_jumps {
-      self.code_mut().patch_jump(jump)?;
-    }
+    self.code_mut().mark(end)?;
 
     Ok(())
   }
 
-  fn compile_load_target(&mut self, target: &Expr) -> Result<()> {
+  fn compile_load_target(&mut self, target: &Expr) -> Result {
     match target {
       Expr::Name(name) => {
         let instruction = self.resolve_load(&name.id)?;
@@ -310,7 +300,7 @@ impl Compiler {
     }
   }
 
-  fn compile_number(&mut self, node: &ExprNumberLiteral) -> Result<()> {
+  fn compile_number(&mut self, node: &ExprNumberLiteral) -> Result {
     self.emit_const(match &node.value {
       Number::Int(int) => {
         Object::Int(int.as_i64().ok_or_else(|| Error::Compile {
@@ -326,7 +316,7 @@ impl Compiler {
     })
   }
 
-  fn compile_return(&mut self, node: &StmtReturn) -> Result<()> {
+  fn compile_return(&mut self, node: &StmtReturn) -> Result {
     if let Some(expr) = &node.value {
       self.compile_expr(expr)?;
     } else {
@@ -338,7 +328,7 @@ impl Compiler {
     Ok(())
   }
 
-  fn compile_stmt(&mut self, stmt: &Stmt) -> Result<()> {
+  fn compile_stmt(&mut self, stmt: &Stmt) -> Result {
     match stmt {
       Stmt::Assign(node) => self.compile_assign(node),
       Stmt::AugAssign(node) => self.compile_aug_assign(node),
@@ -367,7 +357,7 @@ impl Compiler {
     }
   }
 
-  fn compile_store(&mut self, target: &Expr) -> Result<()> {
+  fn compile_store(&mut self, target: &Expr) -> Result {
     match target {
       Expr::Name(name) => {
         let instruction = self.resolve_store(&name.id)?;
@@ -380,22 +370,24 @@ impl Compiler {
     }
   }
 
-  fn compile_while(&mut self, node: &StmtWhile) -> Result<()> {
-    let loop_start = self.code().current_offset()?;
+  fn compile_while(&mut self, node: &StmtWhile) -> Result {
+    let start = self.code_mut().label();
+    let end = self.code_mut().label();
+
+    self.code_mut().mark(start)?;
 
     self.compile_expr(&node.test)?;
-
-    let exit_jump = self.code_mut().emit_jump(Instruction::PopJumpIfFalse(0));
+    self.code_mut().emit_jump_if_false(end)?;
 
     self.compile_body(&node.body)?;
 
-    self.code_mut().emit(Instruction::Jump(loop_start));
-    self.code_mut().patch_jump(exit_jump)?;
+    self.code_mut().emit_jump(start)?;
+    self.code_mut().mark(end)?;
 
     Ok(())
   }
 
-  fn emit_const(&mut self, object: Object) -> Result<()> {
+  fn emit_const(&mut self, object: Object) -> Result {
     let index = self.code_mut().add_const(object)?;
 
     self.code_mut().emit(Instruction::LoadConst(index));
@@ -403,7 +395,7 @@ impl Compiler {
     Ok(())
   }
 
-  fn emit_none(&mut self) -> Result<()> {
+  fn emit_none(&mut self) -> Result {
     self.emit_const(Object::None)
   }
 
@@ -433,16 +425,13 @@ impl Compiler {
       Symbol::Global | Symbol::Name => {
         Ok(Instruction::StoreName(self.code_mut().add_name(name)?))
       }
-      Symbol::Local => {
-        let index =
-          self.scope().symbols.local_index(name).ok_or_else(|| {
-            Error::Compile {
-              message: format!("missing local: {name}"),
-            }
-          })?;
-
-        Ok(Instruction::StoreFast(index))
-      }
+      Symbol::Local => Ok(Instruction::StoreFast(
+        self.scope().symbols.local_index(name).ok_or_else(|| {
+          Error::Compile {
+            message: format!("missing local: {name}"),
+          }
+        })?,
+      )),
       Symbol::Nonlocal => Err(Error::UnsupportedSyntax {
         message: "nonlocal (not yet implemented)".into(),
       }),
