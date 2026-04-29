@@ -140,6 +140,33 @@ impl Object {
       (Self::Float(a), Self::Float(b)) => Ok(Self::Float(a * b)),
       (Self::Int(a), Self::Float(b)) => Ok(Self::Float(int_to_float(*a)? * b)),
       (Self::Float(a), Self::Int(b)) => Ok(Self::Float(a * int_to_float(*b)?)),
+      (Self::Str(string), Self::Int(count))
+      | (Self::Int(count), Self::Str(string)) => {
+        let count = if *count <= 0 {
+          0
+        } else {
+          usize::try_from(*count).map_err(|_| Error::Overflow)?
+        };
+
+        if string.is_empty() || count == 0 {
+          return Ok(Self::Str(String::new()));
+        }
+
+        let capacity =
+          string.len().checked_mul(count).ok_or(Error::Overflow)?;
+
+        let mut result = String::new();
+
+        result
+          .try_reserve_exact(capacity)
+          .map_err(|_| Error::Overflow)?;
+
+        for _ in 0..count {
+          result.push_str(string);
+        }
+
+        Ok(Self::Str(result))
+      }
       _ => Err(self.binary_type_error("*", rhs)),
     }
   }
@@ -427,9 +454,31 @@ mod tests {
 
   #[test]
   fn binary_mul() {
-    assert_eq!(
-      Object::Int(3).binary_mul(&Object::Int(4)).unwrap(),
-      Object::Int(12)
+    #[track_caller]
+    fn case(lhs: &Object, rhs: &Object, expected: &Object) {
+      assert_eq!(&lhs.binary_mul(rhs).unwrap(), expected);
+    }
+
+    case(&Object::Int(3), &Object::Int(4), &Object::Int(12));
+    case(
+      &Object::Str("foo".into()),
+      &Object::Int(3),
+      &Object::Str("foofoofoo".into()),
+    );
+    case(
+      &Object::Int(3),
+      &Object::Str("foo".into()),
+      &Object::Str("foofoofoo".into()),
+    );
+    case(
+      &Object::Str("foo".into()),
+      &Object::Int(0),
+      &Object::Str(String::new()),
+    );
+    case(
+      &Object::Str("foo".into()),
+      &Object::Int(-1),
+      &Object::Str(String::new()),
     );
   }
 

@@ -173,6 +173,19 @@ fn program_file() -> Result {
 }
 
 #[test]
+fn string_repetition() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      print("foo" * 3)
+      print(3 * "bar")
+      "#,
+    )
+    .expected_stdout(Exact("foofoofoo\nbarbarbar\n"))
+    .run()
+}
+
+#[test]
 fn too_many_program_paths() -> Result {
   Test::new()?
     .argument("foo.py")
