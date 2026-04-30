@@ -15,7 +15,7 @@ pub(crate) enum Symbol {
   Nonlocal,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct SymbolTable {
   bindings: HashSet<String>,
   globals: HashSet<String>,
@@ -597,14 +597,10 @@ mod tests {
   }
 
   fn function(source: &str) -> StmtFunctionDef {
-    let module = module(source);
-
-    let Stmt::FunctionDef(function) = module.body.into_iter().next().unwrap()
-    else {
-      panic!("expected function definition");
-    };
-
-    function
+    match module(source).body.into_iter().next().unwrap() {
+      Stmt::FunctionDef(function) => function,
+      _ => panic!("expected function definition"),
+    }
   }
 
   #[test]
@@ -617,10 +613,12 @@ mod tests {
       "
     });
 
+    let error = SymbolTable::function(&function.parameters, &function.body)
+      .unwrap_err()
+      .to_string();
+
     assert_eq!(
-      SymbolTable::function(&function.parameters, &function.body)
-        .unwrap_err()
-        .to_string(),
+      error,
       "CompileError: name 'bar' is assigned to before global declaration",
     );
   }
@@ -635,10 +633,18 @@ mod tests {
       "
     });
 
-    let table =
-      SymbolTable::function(&function.parameters, &function.body).unwrap();
-
-    assert_eq!(table.locals(), &["bar"]);
+    assert_eq!(
+      SymbolTable::function(&function.parameters, &function.body).unwrap(),
+      SymbolTable {
+        bindings: HashSet::from(["bar".to_owned()]),
+        globals: HashSet::new(),
+        kind: ScopeKind::Function,
+        local_indices: HashMap::from([("bar".to_owned(), 0)]),
+        locals: vec!["bar".to_owned()],
+        nonlocals: HashSet::new(),
+        uses: HashSet::new(),
+      }
+    );
   }
 
   #[test]
@@ -652,19 +658,44 @@ mod tests {
       "
     });
 
-    let table =
-      SymbolTable::function(&function.parameters, &function.body).unwrap();
-
-    assert_eq!(table.locals(), &["bar", "quux", "corge"]);
+    assert_eq!(
+      SymbolTable::function(&function.parameters, &function.body).unwrap(),
+      SymbolTable {
+        bindings: HashSet::from([
+          "bar".to_owned(),
+          "quux".to_owned(),
+          "corge".to_owned(),
+        ]),
+        globals: HashSet::new(),
+        kind: ScopeKind::Function,
+        local_indices: HashMap::from([
+          ("bar".to_owned(), 0),
+          ("quux".to_owned(), 1),
+          ("corge".to_owned(), 2),
+        ]),
+        locals: vec!["bar".to_owned(), "quux".to_owned(), "corge".to_owned()],
+        nonlocals: HashSet::new(),
+        uses: HashSet::new(),
+      }
+    );
   }
 
   #[test]
   fn module_assignment_resolves_as_name() {
     let module = module("foo = 1");
-    let table = SymbolTable::module(&module.body).unwrap();
 
-    assert_eq!(table.resolve("foo"), Symbol::Name);
-    assert_eq!(table.locals(), &[] as &[String]);
+    assert_eq!(
+      SymbolTable::module(&module.body).unwrap(),
+      SymbolTable {
+        bindings: HashSet::from(["foo".to_owned()]),
+        globals: HashSet::new(),
+        kind: ScopeKind::Module,
+        local_indices: HashMap::new(),
+        locals: Vec::new(),
+        nonlocals: HashSet::new(),
+        uses: HashSet::new(),
+      }
+    );
   }
 
   #[test]
@@ -676,11 +707,20 @@ mod tests {
       "
     });
 
-    let table =
-      SymbolTable::function(&function.parameters, &function.body).unwrap();
-
-    assert_eq!(table.locals(), &["bar", "baz"]);
-    assert_eq!(table.resolve("bar"), Symbol::Local);
-    assert_eq!(table.resolve("qux"), Symbol::Name);
+    assert_eq!(
+      SymbolTable::function(&function.parameters, &function.body).unwrap(),
+      SymbolTable {
+        bindings: HashSet::from(["bar".to_owned(), "baz".to_owned()]),
+        globals: HashSet::new(),
+        kind: ScopeKind::Function,
+        local_indices: HashMap::from([
+          ("bar".to_owned(), 0),
+          ("baz".to_owned(), 1),
+        ]),
+        locals: vec!["bar".to_owned(), "baz".to_owned()],
+        nonlocals: HashSet::new(),
+        uses: HashSet::from(["qux".to_owned()]),
+      }
+    );
   }
 }

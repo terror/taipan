@@ -809,42 +809,6 @@ mod tests {
   }
 
   #[test]
-  fn nested_function_def_is_local() {
-    Test::new(indoc! {
-      "
-      def foo():
-        def bar():
-          return 1
-      "
-    })
-    .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
-    .constant(Object::Function {
-      name: "foo".to_owned(),
-      params: Vec::new(),
-      code: Test::default()
-        .instructions(&[
-          Instruction::MakeFunction(0),
-          Instruction::StoreFast(0),
-          Instruction::LoadConst(1),
-          Instruction::Return,
-        ])
-        .constant(Object::Function {
-          name: "bar".to_owned(),
-          params: Vec::new(),
-          code: Test::default()
-            .instructions(&[Instruction::LoadConst(0), Instruction::Return])
-            .constant(Object::Int(1))
-            .code(),
-        })
-        .constant(Object::None)
-        .locals(&["bar"])
-        .code(),
-    })
-    .names(&["foo"])
-    .run();
-  }
-
-  #[test]
   fn if_elif_else() {
     Test::new(indoc! {
       "
@@ -940,6 +904,42 @@ mod tests {
   }
 
   #[test]
+  fn nested_function_def_is_local() {
+    Test::new(indoc! {
+      "
+      def foo():
+        def bar():
+          return 1
+      "
+    })
+    .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
+    .constant(Object::Function {
+      name: "foo".to_owned(),
+      params: Vec::new(),
+      code: Test::default()
+        .instructions(&[
+          Instruction::MakeFunction(0),
+          Instruction::StoreFast(0),
+          Instruction::LoadConst(1),
+          Instruction::Return,
+        ])
+        .constant(Object::Function {
+          name: "bar".to_owned(),
+          params: Vec::new(),
+          code: Test::default()
+            .instructions(&[Instruction::LoadConst(0), Instruction::Return])
+            .constant(Object::Int(1))
+            .code(),
+        })
+        .constant(Object::None)
+        .locals(&["bar"])
+        .code(),
+    })
+    .names(&["foo"])
+    .run();
+  }
+
+  #[test]
   fn ternary() {
     Test::new(indoc! {
       "
@@ -975,26 +975,6 @@ mod tests {
   }
 
   #[test]
-  fn while_loop() {
-    Test::new(indoc! {
-      "
-      while foo:
-        bar = 1
-      "
-    })
-    .instructions(&[
-      Instruction::LoadName(0),
-      Instruction::PopJumpIfFalse(5),
-      Instruction::LoadConst(0),
-      Instruction::StoreName(1),
-      Instruction::Jump(0),
-    ])
-    .constant(Object::Int(1))
-    .names(&["foo", "bar"])
-    .run();
-  }
-
-  #[test]
   fn while_else() {
     Test::new(indoc! {
       "
@@ -1016,6 +996,26 @@ mod tests {
     .constant(Object::Int(1))
     .constant(Object::Int(2))
     .names(&["foo", "bar", "baz"])
+    .run();
+  }
+
+  #[test]
+  fn while_loop() {
+    Test::new(indoc! {
+      "
+      while foo:
+        bar = 1
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::PopJumpIfFalse(5),
+      Instruction::LoadConst(0),
+      Instruction::StoreName(1),
+      Instruction::Jump(0),
+    ])
+    .constant(Object::Int(1))
+    .names(&["foo", "bar"])
     .run();
   }
 }

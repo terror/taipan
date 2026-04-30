@@ -144,23 +144,6 @@ impl<'a> Test<'a> {
 }
 
 #[test]
-fn missing_program_path() -> Result {
-  Test::new()?
-    .expected_status(2)
-    .expected_stderr(Contains(" <FILENAME>"))
-    .run()
-}
-
-#[test]
-fn name_error() -> Result {
-  Test::new()?
-    .program("print(foo)")
-    .expected_status(1)
-    .expected_stderr(Contains("NameError: name 'foo' is not defined"))
-    .run()
-}
-
-#[test]
 fn abs_builtin() -> Result {
   Test::new()?
     .program(
@@ -170,6 +153,28 @@ fn abs_builtin() -> Result {
       ",
     )
     .expected_stdout(Exact("1\n1.5\n"))
+    .run()
+}
+
+#[test]
+fn arithmetic() -> Result {
+  Test::new()?
+    .program(
+      "
+      print(1 + 2)
+      print(5 - 3)
+      print(3 * 4)
+      print(7 / 2)
+      print(7 // 2)
+      print(7 % 3)
+      print(2 ** 10)
+      print(-1)
+      print(+1)
+      print(1.5 + 2.5)
+      print(1 + 2.5)
+      ",
+    )
+    .expected_stdout(Exact("3\n2\n12\n3.5\n3\n1\n1024\n-1\n1\n4.0\n3.5\n"))
     .run()
 }
 
@@ -189,6 +194,151 @@ fn bool_builtin() -> Result {
 }
 
 #[test]
+fn bool_ops() -> Result {
+  Test::new()?
+    .program(
+      "
+      print(1 and 2)
+      print(0 and 2)
+      print(1 or 2)
+      print(0 or 2)
+      print(not 0)
+      print(not 1)
+      ",
+    )
+    .expected_stdout(Exact("2\n0\n1\n2\nTrue\nFalse\n"))
+    .run()
+}
+
+#[test]
+fn break_continue() -> Result {
+  Test::new()?
+    .program(
+      "
+      foo = 0
+      while foo < 5:
+        foo += 1
+        if foo == 2:
+          continue
+        if foo == 4:
+          break
+        print(foo)
+      else:
+        print('bar')
+      ",
+    )
+    .expected_stdout(Exact("1\n3\n"))
+    .run()
+}
+
+#[test]
+fn break_in_nested_function() -> Result {
+  Test::new()?
+    .program(
+      "
+      while foo:
+        def bar():
+          break
+      ",
+    )
+    .expected_status(1)
+    .expected_stderr(Contains("CompileError: break outside loop"))
+    .run()
+}
+
+#[test]
+fn break_outside_loop() -> Result {
+  Test::new()?
+    .program("break")
+    .expected_status(1)
+    .expected_stderr(Contains("CompileError: break outside loop"))
+    .run()
+}
+
+#[test]
+fn comparisons() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      print(1 < 2)
+      print(2 < 1)
+      print(1 == 1)
+      print(1 == 1.0)
+      print(1 != 2)
+      print("foo" < "bar")
+      print("foo" > "bar")
+      "#,
+    )
+    .expected_stdout(Exact("True\nFalse\nTrue\nTrue\nTrue\nFalse\nTrue\n"))
+    .run()
+}
+
+#[test]
+fn continue_in_nested_function() -> Result {
+  Test::new()?
+    .program(
+      "
+      while foo:
+        def bar():
+          continue
+      ",
+    )
+    .expected_status(1)
+    .expected_stderr(Contains("CompileError: continue outside loop"))
+    .run()
+}
+
+#[test]
+fn continue_outside_loop() -> Result {
+  Test::new()?
+    .program("continue")
+    .expected_status(1)
+    .expected_stderr(Contains("CompileError: continue outside loop"))
+    .run()
+}
+
+#[test]
+fn control_flow() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      if 0:
+        print("foo")
+      elif 1:
+        print("bar")
+      else:
+        print("baz")
+
+      if 1:
+        print("qux")
+
+      print("foo" if 1 else "bar")
+      print("foo" if 0 else "bar")
+      "#,
+    )
+    .expected_stdout(Exact("bar\nqux\nfoo\nbar\n"))
+    .run()
+}
+
+#[test]
+fn display_values() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      print(None)
+      print(True)
+      print(False)
+      print(42)
+      print(3.0)
+      print(1.5)
+      print("foo")
+      "#,
+    )
+    .expected_stdout(Exact("None\nTrue\nFalse\n42\n3.0\n1.5\nfoo\n"))
+    .run()
+}
+
+#[test]
 fn float_builtin() -> Result {
   Test::new()?
     .program(
@@ -199,6 +349,36 @@ fn float_builtin() -> Result {
       "#,
     )
     .expected_stdout(Exact("1.0\n1.5\n1.0\n"))
+    .run()
+}
+
+#[test]
+fn function_call() -> Result {
+  Test::new()?
+    .program(
+      "
+      def foo(bar):
+        return bar + 1
+
+      print(foo(41))
+      ",
+    )
+    .expected_stdout(Exact("42\n"))
+    .run()
+}
+
+#[test]
+fn implicit_return() -> Result {
+  Test::new()?
+    .program(
+      "
+      def foo():
+        pass
+
+      print(foo())
+      ",
+    )
+    .expected_stdout(Exact("None\n"))
     .run()
 }
 
@@ -229,36 +409,44 @@ fn min_builtin() -> Result {
 }
 
 #[test]
-fn repr_builtin() -> Result {
+fn missing_program_path() -> Result {
   Test::new()?
-    .program(
-      r#"
-      print(repr("foo"))
-      print(repr(1.5))
-      "#,
-    )
-    .expected_stdout(Exact("foo\n1.5\n"))
+    .expected_status(2)
+    .expected_stderr(Contains(" <FILENAME>"))
     .run()
 }
 
 #[test]
-fn break_continue() -> Result {
+fn multiple_args() -> Result {
+  Test::new()?
+    .program(r#"print("foo", "bar", "baz")"#)
+    .expected_stdout(Exact("foo bar baz\n"))
+    .run()
+}
+
+#[test]
+fn name_error() -> Result {
+  Test::new()?
+    .program("print(foo)")
+    .expected_status(1)
+    .expected_stderr(Contains("NameError: name 'foo' is not defined"))
+    .run()
+}
+
+#[test]
+fn nested_function() -> Result {
   Test::new()?
     .program(
       "
-      foo = 0
-      while foo < 5:
-        foo += 1
-        if foo == 2:
-          continue
-        if foo == 4:
-          break
-        print(foo)
-      else:
-        print('bar')
+      def foo(bar):
+        def baz(qux):
+          return qux * 2
+        return baz(bar) + 1
+
+      print(foo(5))
       ",
     )
-    .expected_stdout(Exact("1\n3\n"))
+    .expected_stdout(Exact("11\n"))
     .run()
 }
 
@@ -275,50 +463,23 @@ fn program_file() -> Result {
 }
 
 #[test]
-fn break_outside_loop() -> Result {
-  Test::new()?
-    .program("break")
-    .expected_status(1)
-    .expected_stderr(Contains("CompileError: break outside loop"))
-    .run()
-}
-
-#[test]
-fn continue_outside_loop() -> Result {
-  Test::new()?
-    .program("continue")
-    .expected_status(1)
-    .expected_stderr(Contains("CompileError: continue outside loop"))
-    .run()
-}
-
-#[test]
-fn break_in_nested_function() -> Result {
+fn repr_builtin() -> Result {
   Test::new()?
     .program(
-      "
-      while foo:
-        def bar():
-          break
-      ",
+      r#"
+      print(repr("foo"))
+      print(repr(1.5))
+      "#,
     )
-    .expected_status(1)
-    .expected_stderr(Contains("CompileError: break outside loop"))
+    .expected_stdout(Exact("foo\n1.5\n"))
     .run()
 }
 
 #[test]
-fn continue_in_nested_function() -> Result {
+fn string_concatenation() -> Result {
   Test::new()?
-    .program(
-      "
-      while foo:
-        def bar():
-          continue
-      ",
-    )
-    .expected_status(1)
-    .expected_stderr(Contains("CompileError: continue outside loop"))
+    .program(r#"print("foo" + "bar")"#)
+    .expected_stdout(Exact("foobar\n"))
     .run()
 }
 
@@ -342,5 +503,66 @@ fn too_many_program_paths() -> Result {
     .program("print(1)")
     .expected_status(2)
     .expected_stderr(Contains("unexpected argument"))
+    .run()
+}
+
+#[test]
+fn type_errors() -> Result {
+  #[track_caller]
+  fn case(program: &str, expected: &str) -> Result {
+    Test::new()?
+      .program(program)
+      .expected_status(1)
+      .expected_stderr(Contains(expected))
+      .run()
+  }
+
+  case(r#"1 + "foo""#, "unsupported operand type(s) for +")?;
+  case("1 / 0", "division by zero")?;
+  case("1 // 0", "integer division or modulo by zero")?;
+  case("1 % 0", "integer division or modulo by zero")?;
+  case(r#""foo" < 1"#, "'<' not supported between instances")
+}
+
+#[test]
+fn variable_assignment() -> Result {
+  Test::new()?
+    .program(
+      "
+      foo = 42
+      print(foo)
+      ",
+    )
+    .expected_stdout(Exact("42\n"))
+    .run()
+}
+
+#[test]
+fn while_else() -> Result {
+  Test::new()?
+    .program(
+      "
+      while 0:
+        print('foo')
+      else:
+        print('bar')
+      ",
+    )
+    .expected_stdout(Exact("bar\n"))
+    .run()
+}
+
+#[test]
+fn while_loop() -> Result {
+  Test::new()?
+    .program(
+      "
+      foo = 0
+      while foo < 3:
+        print(foo)
+        foo += 1
+      ",
+    )
+    .expected_stdout(Exact("0\n1\n2\n"))
     .run()
 }
