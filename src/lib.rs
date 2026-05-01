@@ -13,8 +13,9 @@ use {
     StmtNonlocal, StmtReturn, StmtWhile, UnaryOp,
   },
   ruff_python_parser::ParseError,
-  scope::{Scope, ScopeStack},
+  scope::Scope,
   scope_kind::ScopeKind,
+  scope_stack::ScopeStack,
   snafu::Snafu,
   std::{
     cell::RefCell,
@@ -44,6 +45,7 @@ mod object;
 mod operator_ext;
 mod scope;
 mod scope_kind;
+mod scope_stack;
 mod stmt_ext;
 mod symbol;
 mod symbol_table;
