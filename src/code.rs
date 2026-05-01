@@ -1,7 +1,9 @@
 use super::*;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
+#[typeshare]
 pub struct Code {
+  #[typeshare(skip)]
   pub constants: Vec<Object>,
   pub freevars: Vec<String>,
   pub instructions: Vec<Instruction>,

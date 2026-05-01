@@ -9,13 +9,17 @@ alias t := test
 
 all: build test clippy fmt-check
 
+[group: 'bench']
+bench *args:
+  cargo bench --bench benchmarks {{ args }}
+
 [group: 'misc']
 build:
   cargo build
 
-[group: 'bench']
-bench *args:
-  cargo bench --bench benchmarks {{ args }}
+[group: 'web']
+build-wasm:
+  wasm-pack build crates/taipan-wasm --target web --out-dir www/src/wasm
 
 [group: 'check']
 check:
@@ -69,6 +73,10 @@ test-release-workflow:
   git tag test-release
   git push origin test-release
 
+[group: 'web']
+typeshare:
+  typeshare --lang=typescript --output-file www/src/lib/types.ts .
+
 [group: 'release']
 update-changelog:
   echo >> CHANGELOG.md
@@ -77,3 +85,23 @@ update-changelog:
 [group: 'dev']
 watch +COMMAND='test':
   cargo watch --clear --exec "{{COMMAND}}"
+
+[group: 'web']
+[working-directory: 'www']
+web-build: typeshare build-wasm
+  bun run build
+
+[group: 'web']
+[working-directory: 'www']
+web-dev: typeshare build-wasm
+  bun run dev
+
+[group: 'web']
+[working-directory: 'www']
+web-format:
+  bun run format
+
+[group: 'web']
+[working-directory: 'www']
+web-install:
+  bun install
