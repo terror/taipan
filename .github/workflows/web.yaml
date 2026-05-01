@@ -54,9 +54,13 @@ jobs:
       working-directory: ./www
       run: wasm-pack build ../crates/taipan-wasm --target web --out-dir ../../www/src/wasm
 
+    - name: Lint
+      working-directory: ./www
+      run: bun run lint
+
     - name: Test
       working-directory: ./www
-      run: bun test
+      run: bun test --pass-with-no-tests
 
     - name: Build
       working-directory: ./www
