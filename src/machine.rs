@@ -292,8 +292,12 @@ impl<W: Write> Machine<W> {
     Ok(())
   }
 
-  #[cfg(test)]
-  pub(crate) fn with_output(code: Code, output: W) -> Result<(Object, W)> {
+  /// Runs `code` with `output`.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if execution fails or writing to `output` fails.
+  pub fn with_output(code: Code, output: W) -> Result<(Object, W)> {
     let mut machine = Machine {
       frames: Vec::new(),
       globals: HashMap::new(),

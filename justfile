@@ -13,6 +13,10 @@ all: build test clippy fmt-check
 build:
   cargo build
 
+[group: 'bench']
+bench *args:
+  cargo bench --bench benchmarks {{ args }}
+
 [group: 'check']
 check:
  cargo check
