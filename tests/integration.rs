@@ -383,9 +383,13 @@ fn f_strings() -> Result {
       print(f"foo {bar} baz")
       print(f"foo={foo!r}")
       print(f"{bar=}")
+      print(f"{bar + 1=}")
+      print(f"{ foo = }")
       "#,
     )
-    .expected_stdout(Exact("foo 43\nfoo 42 baz\nfoo=foo\nbar=42\n"))
+    .expected_stdout(Exact(
+      "foo 43\nfoo 42 baz\nfoo=foo\nbar=42\nbar + 1=43\n foo = foo\n",
+    ))
     .run()
 }
 

@@ -322,7 +322,7 @@ mod tests {
       .unwrap()
       .into_syntax();
 
-    Lower::module(&module).unwrap()
+    Lower::new(source).module(&module).unwrap()
   }
 
   fn function(source: &str) -> FunctionDef {

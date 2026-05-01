@@ -1,8 +1,10 @@
 use super::*;
 
-pub(crate) struct Lower;
+pub(crate) struct Lower<'a> {
+  source: &'a str,
+}
 
-impl Lower {
+impl<'a> Lower<'a> {
   fn binary_operator(operator: Operator) -> Result<BinaryOperator> {
     match operator {
       Operator::Add => Ok(BinaryOperator::Add),
@@ -18,11 +20,11 @@ impl Lower {
     }
   }
 
-  fn body(body: &[ruff_python_ast::Stmt]) -> Result<Vec<Stmt>> {
-    body.iter().map(Self::stmt).collect()
+  fn body(&self, body: &[ruff_python_ast::Stmt]) -> Result<Vec<Stmt>> {
+    body.iter().map(|stmt| self.stmt(stmt)).collect()
   }
 
-  fn call(node: &ruff_python_ast::ExprCall) -> Result<Expr> {
+  fn call(&self, node: &ruff_python_ast::ExprCall) -> Result<Expr> {
     if !node.arguments.keywords.is_empty() {
       return Err(Error::UnsupportedSyntax {
         message: "keyword arguments".into(),
@@ -34,13 +36,13 @@ impl Lower {
         .arguments
         .args
         .iter()
-        .map(Self::expr)
+        .map(|expr| self.expr(expr))
         .collect::<Result<Vec<_>>>()?,
-      function: Box::new(Self::expr(&node.func)?),
+      function: Box::new(self.expr(&node.func)?),
     })
   }
 
-  fn compare(node: &ruff_python_ast::ExprCompare) -> Result<Expr> {
+  fn compare(&self, node: &ruff_python_ast::ExprCompare) -> Result<Expr> {
     if node.ops.len() != 1 {
       return Err(Error::UnsupportedSyntax {
         message: "chained comparisons".into(),
@@ -66,36 +68,65 @@ impl Lower {
     };
 
     Ok(Expr::Compare {
-      lhs: Box::new(Self::expr(&node.left)?),
+      lhs: Box::new(self.expr(&node.left)?),
       operator,
-      rhs: Box::new(Self::expr(rhs)?),
+      rhs: Box::new(self.expr(rhs)?),
     })
   }
 
-  fn expr(expr: &ruff_python_ast::Expr) -> Result<Expr> {
+  fn debug_text(
+    &self,
+    interpolation: &ruff_python_ast::InterpolatedElement,
+  ) -> Result<String> {
+    let debug_text =
+      interpolation
+        .debug_text
+        .as_ref()
+        .ok_or_else(|| Error::Internal {
+          message: "missing f-string debug text".into(),
+        })?;
+
+    let expression = self
+      .source
+      .get(interpolation.expression.range().to_std_range())
+      .ok_or_else(|| Error::Internal {
+        message: "invalid f-string debug expression range".into(),
+      })?;
+
+    Ok(format!(
+      "{}{}{}",
+      debug_text.leading, expression, debug_text.trailing
+    ))
+  }
+
+  fn expr(&self, expr: &ruff_python_ast::Expr) -> Result<Expr> {
     match expr {
       ruff_python_ast::Expr::BinOp(node) => Ok(Expr::Binary {
-        lhs: Box::new(Self::expr(&node.left)?),
+        lhs: Box::new(self.expr(&node.left)?),
         operator: Self::binary_operator(node.op)?,
-        rhs: Box::new(Self::expr(&node.right)?),
+        rhs: Box::new(self.expr(&node.right)?),
       }),
       ruff_python_ast::Expr::BoolOp(node) => Ok(Expr::BoolOp {
         operator: match node.op {
           BoolOp::And => BoolOperator::And,
           BoolOp::Or => BoolOperator::Or,
         },
-        values: node.values.iter().map(Self::expr).collect::<Result<_>>()?,
+        values: node
+          .values
+          .iter()
+          .map(|expr| self.expr(expr))
+          .collect::<Result<_>>()?,
       }),
       ruff_python_ast::Expr::BooleanLiteral(node) => Ok(Expr::Bool(node.value)),
-      ruff_python_ast::Expr::Call(node) => Self::call(node),
-      ruff_python_ast::Expr::Compare(node) => Self::compare(node),
+      ruff_python_ast::Expr::Call(node) => self.call(node),
+      ruff_python_ast::Expr::Compare(node) => self.compare(node),
       ruff_python_ast::Expr::FString(node) => {
-        Self::formatted_string(node.value.iter())
+        self.formatted_string(node.value.iter())
       }
       ruff_python_ast::Expr::If(node) => Ok(Expr::If {
-        body: Box::new(Self::expr(&node.body)?),
-        orelse: Box::new(Self::expr(&node.orelse)?),
-        test: Box::new(Self::expr(&node.test)?),
+        body: Box::new(self.expr(&node.body)?),
+        orelse: Box::new(self.expr(&node.orelse)?),
+        test: Box::new(self.expr(&node.test)?),
       }),
       ruff_python_ast::Expr::Name(node) => Ok(Expr::Name(node.id.to_string())),
       ruff_python_ast::Expr::NoneLiteral(_) => Ok(Expr::None),
@@ -116,7 +147,7 @@ impl Lower {
         };
 
         Ok(Expr::Unary {
-          operand: Box::new(Self::expr(&node.operand)?),
+          operand: Box::new(self.expr(&node.operand)?),
           operator,
         })
       }
@@ -126,8 +157,9 @@ impl Lower {
     }
   }
 
-  fn formatted_string<'a>(
-    parts: impl IntoIterator<Item = &'a FStringPart>,
+  fn formatted_string<'b>(
+    &self,
+    parts: impl IntoIterator<Item = &'b FStringPart>,
   ) -> Result<Expr> {
     let mut expressions = Vec::new();
 
@@ -153,19 +185,11 @@ impl Lower {
                   ConversionFlag::None
                   | ConversionFlag::Str
                   | ConversionFlag::Repr => {
-                    let expr = Self::expr(&interpolation.expression)?;
+                    let expr = self.expr(&interpolation.expression)?;
 
-                    if let Some(debug_text) = &interpolation.debug_text {
-                      let Expr::Name(name) = &expr else {
-                        return Err(Error::UnsupportedSyntax {
-                          message: "complex f-string debug expression".into(),
-                        });
-                      };
-
-                      expressions.push(Expr::String(format!(
-                        "{}{}{}",
-                        debug_text.leading, name, debug_text.trailing
-                      )));
+                    if interpolation.debug_text.is_some() {
+                      expressions
+                        .push(Expr::String(self.debug_text(interpolation)?));
                     }
 
                     expressions.push(expr);
@@ -186,10 +210,14 @@ impl Lower {
     Ok(Expr::FormattedString(expressions))
   }
 
-  pub(crate) fn module(module: &ModModule) -> Result<Module> {
+  pub(crate) fn module(&self, module: &ModModule) -> Result<Module> {
     Ok(Module {
-      body: Self::body(&module.body)?,
+      body: self.body(&module.body)?,
     })
+  }
+
+  pub(crate) fn new(source: &'a str) -> Self {
+    Self { source }
   }
 
   fn number(node: &ruff_python_ast::ExprNumberLiteral) -> Result<Expr> {
@@ -215,11 +243,15 @@ impl Lower {
       .collect()
   }
 
-  fn stmt(stmt: &ruff_python_ast::Stmt) -> Result<Stmt> {
+  fn stmt(&self, stmt: &ruff_python_ast::Stmt) -> Result<Stmt> {
     match stmt {
       ruff_python_ast::Stmt::AnnAssign(node) => Ok(Stmt::AnnAssign {
         target: Self::target(&node.target)?,
-        value: node.value.as_deref().map(Self::expr).transpose()?,
+        value: node
+          .value
+          .as_deref()
+          .map(|expr| self.expr(expr))
+          .transpose()?,
       }),
       ruff_python_ast::Stmt::Assign(node) => Ok(Stmt::Assign {
         targets: node
@@ -227,21 +259,21 @@ impl Lower {
           .iter()
           .map(Self::target)
           .collect::<Result<Vec<_>>>()?,
-        value: Self::expr(&node.value)?,
+        value: self.expr(&node.value)?,
       }),
       ruff_python_ast::Stmt::AugAssign(node) => Ok(Stmt::AugAssign {
         operator: Self::binary_operator(node.op)?,
         target: Self::target(&node.target)?,
-        value: Self::expr(&node.value)?,
+        value: self.expr(&node.value)?,
       }),
       ruff_python_ast::Stmt::Break(_) => Ok(Stmt::Break),
       ruff_python_ast::Stmt::Continue(_) => Ok(Stmt::Continue),
       ruff_python_ast::Stmt::Expr(node) => {
-        Ok(Stmt::Expr(Self::expr(&node.value)?))
+        Ok(Stmt::Expr(self.expr(&node.value)?))
       }
       ruff_python_ast::Stmt::FunctionDef(node) => {
         Ok(Stmt::FunctionDef(FunctionDef {
-          body: Self::body(&node.body)?,
+          body: self.body(&node.body)?,
           name: node.name.id.to_string(),
           parameters: Self::parameters(&node.parameters),
         }))
@@ -250,30 +282,38 @@ impl Lower {
         node.names.iter().map(|name| name.id.to_string()).collect(),
       )),
       ruff_python_ast::Stmt::If(node) => Ok(Stmt::If {
-        body: Self::body(&node.body)?,
+        body: self.body(&node.body)?,
         clauses: node
           .elif_else_clauses
           .iter()
           .map(|clause| {
             Ok((
-              clause.test.as_ref().map(Self::expr).transpose()?,
-              Self::body(&clause.body)?,
+              clause
+                .test
+                .as_ref()
+                .map(|expr| self.expr(expr))
+                .transpose()?,
+              self.body(&clause.body)?,
             ))
           })
           .collect::<Result<Vec<_>>>()?,
-        test: Self::expr(&node.test)?,
+        test: self.expr(&node.test)?,
       }),
       ruff_python_ast::Stmt::Nonlocal(node) => Ok(Stmt::Nonlocal(
         node.names.iter().map(|name| name.id.to_string()).collect(),
       )),
       ruff_python_ast::Stmt::Pass(_) => Ok(Stmt::Pass),
       ruff_python_ast::Stmt::Return(node) => Ok(Stmt::Return(
-        node.value.as_deref().map(Self::expr).transpose()?,
+        node
+          .value
+          .as_deref()
+          .map(|expr| self.expr(expr))
+          .transpose()?,
       )),
       ruff_python_ast::Stmt::While(node) => Ok(Stmt::While {
-        body: Self::body(&node.body)?,
-        orelse: Self::body(&node.orelse)?,
-        test: Self::expr(&node.test)?,
+        body: self.body(&node.body)?,
+        orelse: self.body(&node.orelse)?,
+        test: self.expr(&node.test)?,
       }),
       _ => Err(Error::UnsupportedSyntax {
         message: format!("statement: {}", stmt.name()),
@@ -291,9 +331,9 @@ impl Lower {
   }
 }
 
-impl Pass for Lower {
+impl Pass for Lower<'_> {
   fn run(&mut self, context: &mut Context<'_>) -> Result {
-    context.set_ast(Self::module(context.module())?);
+    context.set_ast(self.module(context.syntax())?);
     Ok(())
   }
 }

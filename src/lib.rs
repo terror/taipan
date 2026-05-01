@@ -18,6 +18,7 @@ use {
     ModModule, Number, Operator, UnaryOp,
   },
   ruff_python_parser::ParseError,
+  ruff_text_size::Ranged,
   scope::Scope,
   scope_kind::ScopeKind,
   scope_stack::ScopeStack,

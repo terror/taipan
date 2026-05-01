@@ -2,11 +2,11 @@ use super::*;
 
 pub(crate) struct Pipeline<'a> {
   context: Context<'a>,
-  passes: Vec<Box<dyn Pass>>,
+  passes: Vec<Box<dyn Pass + 'a>>,
 }
 
 impl<'a> Pipeline<'a> {
-  fn add_pass(&mut self, pass: Box<dyn Pass>) {
+  fn add_pass(&mut self, pass: Box<dyn Pass + 'a>) {
     self.passes.push(pass);
   }
 
@@ -26,10 +26,12 @@ impl<'a> Pipeline<'a> {
   }
 
   pub(crate) fn with_default_passes(context: Context<'a>) -> Self {
+    let source = context.source_text();
+
     let mut pipeline = Self::new(context);
 
-    let passes: Vec<Box<dyn Pass>> = vec![
-      Box::new(Lower),
+    let passes: Vec<Box<dyn Pass + 'a>> = vec![
+      Box::new(Lower::new(source)),
       Box::new(CollectSymbols),
       Box::new(EmitBytecode),
     ];

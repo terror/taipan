@@ -101,7 +101,9 @@ fn bench_compile(c: &mut Criterion) {
       .unwrap();
 
     group.bench_function(workload.name, |b| {
-      b.iter(|| Compiler::compile(black_box(module.syntax())).unwrap());
+      b.iter(|| {
+        Compiler::compile(workload.source, black_box(module.syntax())).unwrap()
+      });
     });
   }
 
@@ -114,12 +116,14 @@ fn bench_end_to_end(c: &mut Criterion) {
   for workload in WORKLOADS {
     group.bench_function(workload.name, |b| {
       b.iter(|| {
-        let module = parse(black_box(workload.source), Mode::Module.into())
+        let source = black_box(workload.source);
+
+        let module = parse(source, Mode::Module.into())
           .unwrap()
           .try_into_module()
           .unwrap();
 
-        let code = Compiler::compile(module.syntax()).unwrap();
+        let code = Compiler::compile(source, module.syntax()).unwrap();
 
         black_box(Machine::with_output(code, Vec::new()).unwrap());
       });
@@ -138,7 +142,7 @@ fn bench_execute(c: &mut Criterion) {
       .try_into_module()
       .unwrap();
 
-    let code = Compiler::compile(module.syntax()).unwrap();
+    let code = Compiler::compile(workload.source, module.syntax()).unwrap();
 
     group.bench_function(workload.name, |b| {
       b.iter_batched(

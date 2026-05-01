@@ -25,7 +25,7 @@ impl Arguments {
       .try_into_module()
       .expect("Mode::Module should produce ModModule");
 
-    let code = Compiler::compile(parsed.syntax())?;
+    let code = Compiler::compile(&source, parsed.syntax())?;
 
     Machine::run(code)?;
 

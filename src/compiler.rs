@@ -9,15 +9,17 @@ impl Compiler {
     &mut self.scope_mut().code
   }
 
-  /// Compiles a parsed module into bytecode.
+  /// Compiles Python source and its parsed module into bytecode.
   ///
   /// # Errors
   ///
   /// Returns an error if the module contains unsupported syntax.
-  pub fn compile(module: &ModModule) -> Result<Code> {
-    Pipeline::with_default_passes(Context::new(module))
-      .run()?
-      .code()
+  pub fn compile(source: &str, module: &ModModule) -> Result<Code> {
+    Pipeline::with_default_passes(
+      Context::default().module(module).source(source).build()?,
+    )
+    .run()?
+    .code()
   }
 
   fn compile_ann_assign(
@@ -562,7 +564,10 @@ mod tests {
         .try_into_module()
         .unwrap();
 
-      assert_eq!(Compiler::compile(module.syntax()).unwrap(), self.code());
+      assert_eq!(
+        Compiler::compile(self.source, module.syntax()).unwrap(),
+        self.code()
+      );
     }
   }
 
