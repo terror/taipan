@@ -5,12 +5,36 @@ pub(crate) struct ScopeStack {
 }
 
 impl ScopeStack {
+  fn code_mut(&mut self) -> &mut CodeBuilder {
+    &mut self.current_mut().code
+  }
+
   pub(crate) fn current(&self) -> &Scope {
     self.scopes.last().unwrap()
   }
 
   pub(crate) fn current_mut(&mut self) -> &mut Scope {
     self.scopes.last_mut().unwrap()
+  }
+
+  pub(crate) fn ensure_capturable(&mut self, name: &str) -> Result {
+    match self.current().symbols.resolve(name) {
+      Symbol::Local => Ok(()),
+      Symbol::Nonlocal => {
+        self.free_index(name)?;
+        Ok(())
+      }
+      Symbol::Global | Symbol::Name => {
+        if self.has_enclosing_binding(name) {
+          self.code_mut().add_freevar(name)?;
+          Ok(())
+        } else {
+          Err(Error::Compile {
+            message: format!("no binding for nonlocal '{name}' found"),
+          })
+        }
+      }
+    }
   }
 
   pub(crate) fn enter_function(&mut self, symbols: SymbolTable) {
@@ -31,6 +55,16 @@ impl ScopeStack {
     self.scopes.pop().unwrap().code.finish()
   }
 
+  fn fast_index(&self, name: &str) -> Result<u16> {
+    self
+      .current()
+      .symbols
+      .local_index(name)
+      .ok_or_else(|| Error::Compile {
+        message: format!("missing local: {name}"),
+      })
+  }
+
   pub(crate) fn finish(mut self) -> Result<Code> {
     if self.scopes.len() != 1 {
       return Err(Error::Compile {
@@ -41,7 +75,17 @@ impl ScopeStack {
     self.scopes.pop().unwrap().code.finish()
   }
 
-  pub(crate) fn has_enclosing_binding(&self, name: &str) -> bool {
+  pub(crate) fn free_index(&mut self, name: &str) -> Result<u16> {
+    if self.has_enclosing_binding(name) {
+      self.code_mut().add_freevar(name)
+    } else {
+      Err(Error::Compile {
+        message: format!("no binding for nonlocal '{name}' found"),
+      })
+    }
+  }
+
+  fn has_enclosing_binding(&self, name: &str) -> bool {
     self
       .scopes
       .iter()
@@ -68,6 +112,33 @@ impl ScopeStack {
         control_flows: Vec::new(),
         symbols,
       }],
+    }
+  }
+
+  pub(crate) fn resolve_load(&mut self, name: &str) -> Result<Instruction> {
+    match self.current().symbols.resolve(name) {
+      Symbol::Local => Ok(Instruction::LoadFast(self.fast_index(name)?)),
+      Symbol::Global => {
+        Ok(Instruction::LoadName(self.code_mut().add_name(name)?))
+      }
+      Symbol::Name => {
+        if self.has_enclosing_binding(name) {
+          Ok(Instruction::LoadFree(self.code_mut().add_freevar(name)?))
+        } else {
+          Ok(Instruction::LoadName(self.code_mut().add_name(name)?))
+        }
+      }
+      Symbol::Nonlocal => Ok(Instruction::LoadFree(self.free_index(name)?)),
+    }
+  }
+
+  pub(crate) fn resolve_store(&mut self, name: &str) -> Result<Instruction> {
+    match self.current().symbols.resolve(name) {
+      Symbol::Global | Symbol::Name => {
+        Ok(Instruction::StoreName(self.code_mut().add_name(name)?))
+      }
+      Symbol::Local => Ok(Instruction::StoreFast(self.fast_index(name)?)),
+      Symbol::Nonlocal => Ok(Instruction::StoreFree(self.free_index(name)?)),
     }
   }
 }

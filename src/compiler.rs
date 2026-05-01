@@ -203,7 +203,7 @@ impl Compiler {
       }
       Expr::Int(value) => self.emit_const(Object::Int(*value)),
       Expr::Name(name) => {
-        let instruction = self.resolve_load(name)?;
+        let instruction = self.scopes.resolve_load(name)?;
         self.code_mut().emit(instruction);
         Ok(())
       }
@@ -249,7 +249,7 @@ impl Compiler {
     let function_code = self.scopes.exit_scope()?;
 
     for freevar in &function_code.freevars {
-      self.ensure_capturable(freevar)?;
+      self.scopes.ensure_capturable(freevar)?;
     }
 
     let const_index = self.code_mut().add_const(Object::Function {
@@ -261,7 +261,7 @@ impl Compiler {
 
     self.code_mut().emit(Instruction::MakeFunction(const_index));
 
-    let instruction = self.resolve_store(&function.name)?;
+    let instruction = self.scopes.resolve_store(&function.name)?;
 
     self.code_mut().emit(instruction);
 
@@ -317,7 +317,7 @@ impl Compiler {
   fn compile_load_target(&mut self, target: &Expr) -> Result {
     match target {
       Expr::Name(name) => {
-        let instruction = self.resolve_load(name)?;
+        let instruction = self.scopes.resolve_load(name)?;
         self.code_mut().emit(instruction);
         Ok(())
       }
@@ -347,7 +347,7 @@ impl Compiler {
 
   fn compile_nonlocal(&mut self, names: &[String]) -> Result {
     for name in names {
-      self.resolve_free_index(name)?;
+      self.scopes.free_index(name)?;
     }
 
     Ok(())
@@ -407,7 +407,7 @@ impl Compiler {
   fn compile_store(&mut self, target: &Expr) -> Result {
     match target {
       Expr::Name(name) => {
-        let instruction = self.resolve_store(name)?;
+        let instruction = self.scopes.resolve_store(name)?;
         self.code_mut().emit(instruction);
         Ok(())
       }
@@ -454,26 +454,6 @@ impl Compiler {
     self.emit_const(Object::None)
   }
 
-  fn ensure_capturable(&mut self, name: &str) -> Result {
-    match self.scope().symbols.resolve(name) {
-      Symbol::Local => Ok(()),
-      Symbol::Nonlocal => {
-        self.resolve_free_index(name)?;
-        Ok(())
-      }
-      Symbol::Global | Symbol::Name => {
-        if self.scopes.has_enclosing_binding(name) {
-          self.code_mut().add_freevar(name)?;
-          Ok(())
-        } else {
-          Err(Error::Compile {
-            message: format!("no binding for nonlocal '{name}' found"),
-          })
-        }
-      }
-    }
-  }
-
   pub(crate) fn finish(self) -> Result<Code> {
     self.scopes.finish()
   }
@@ -481,66 +461,6 @@ impl Compiler {
   pub(crate) fn new(symbols: SymbolTable) -> Self {
     Self {
       scopes: ScopeStack::module(symbols),
-    }
-  }
-
-  fn resolve_free_index(&mut self, name: &str) -> Result<u16> {
-    if self.scopes.has_enclosing_binding(name) {
-      self.code_mut().add_freevar(name)
-    } else {
-      Err(Error::Compile {
-        message: format!("no binding for nonlocal '{name}' found"),
-      })
-    }
-  }
-
-  fn resolve_free_load(&mut self, name: &str) -> Result<Instruction> {
-    Ok(Instruction::LoadFree(self.resolve_free_index(name)?))
-  }
-
-  fn resolve_free_store(&mut self, name: &str) -> Result<Instruction> {
-    Ok(Instruction::StoreFree(self.resolve_free_index(name)?))
-  }
-
-  fn resolve_load(&mut self, name: &str) -> Result<Instruction> {
-    match self.scope().symbols.resolve(name) {
-      Symbol::Local => {
-        let index =
-          self.scope().symbols.local_index(name).ok_or_else(|| {
-            Error::Compile {
-              message: format!("missing local: {name}"),
-            }
-          })?;
-
-        Ok(Instruction::LoadFast(index))
-      }
-      Symbol::Global => {
-        Ok(Instruction::LoadName(self.code_mut().add_name(name)?))
-      }
-      Symbol::Name => {
-        if self.scopes.has_enclosing_binding(name) {
-          Ok(Instruction::LoadFree(self.code_mut().add_freevar(name)?))
-        } else {
-          Ok(Instruction::LoadName(self.code_mut().add_name(name)?))
-        }
-      }
-      Symbol::Nonlocal => self.resolve_free_load(name),
-    }
-  }
-
-  fn resolve_store(&mut self, name: &str) -> Result<Instruction> {
-    match self.scope().symbols.resolve(name) {
-      Symbol::Global | Symbol::Name => {
-        Ok(Instruction::StoreName(self.code_mut().add_name(name)?))
-      }
-      Symbol::Local => Ok(Instruction::StoreFast(
-        self.scope().symbols.local_index(name).ok_or_else(|| {
-          Error::Compile {
-            message: format!("missing local: {name}"),
-          }
-        })?,
-      )),
-      Symbol::Nonlocal => self.resolve_free_store(name),
     }
   }
 
