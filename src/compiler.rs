@@ -92,12 +92,16 @@ impl Compiler {
   }
 
   fn compile_break(&mut self) -> Result {
-    let (break_label, _) =
-      *self.scope().loops.last().ok_or_else(|| Error::Compile {
-        message: "break outside loop".into(),
-      })?;
+    let control_flow =
+      *self
+        .scope()
+        .control_flows
+        .last()
+        .ok_or_else(|| Error::Compile {
+          message: "break outside loop".into(),
+        })?;
 
-    self.code_mut().emit_jump(break_label)
+    self.code_mut().emit_jump(control_flow.break_label)
   }
 
   fn compile_call(&mut self, node: &ExprCall) -> Result {
@@ -155,12 +159,16 @@ impl Compiler {
   }
 
   fn compile_continue(&mut self) -> Result {
-    let (_, continue_label) =
-      *self.scope().loops.last().ok_or_else(|| Error::Compile {
-        message: "continue outside loop".into(),
-      })?;
+    let control_flow =
+      *self
+        .scope()
+        .control_flows
+        .last()
+        .ok_or_else(|| Error::Compile {
+          message: "continue outside loop".into(),
+        })?;
 
-    self.code_mut().emit_jump(continue_label)
+    self.code_mut().emit_jump(control_flow.continue_label)
   }
 
   fn compile_expr(&mut self, expr: &Expr) -> Result {
@@ -338,11 +346,14 @@ impl Compiler {
     break_label: usize,
     continue_label: usize,
   ) -> Result {
-    self.scope_mut().loops.push((break_label, continue_label));
+    self.scope_mut().control_flows.push(ControlFlow {
+      break_label,
+      continue_label,
+    });
 
     let result = self.compile_body(body);
 
-    self.scope_mut().loops.pop();
+    self.scope_mut().control_flows.pop();
 
     result
   }

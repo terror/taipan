@@ -1,6 +1,7 @@
 use {
   builtins::BUILTINS,
   code_builder::CodeBuilder,
+  control_flow::ControlFlow,
   expr_ext::ExprExt,
   frame::Frame,
   num_traits::ToPrimitive,
@@ -33,6 +34,7 @@ mod builtins;
 mod code;
 mod code_builder;
 mod compiler;
+mod control_flow;
 mod error;
 mod expr_ext;
 mod frame;

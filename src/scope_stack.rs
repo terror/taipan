@@ -16,7 +16,7 @@ impl ScopeStack {
   pub(crate) fn enter_function(&mut self, symbols: SymbolTable) {
     self.scopes.push(Scope {
       code: CodeBuilder::default(),
-      loops: Vec::new(),
+      control_flows: Vec::new(),
       symbols,
     });
   }
@@ -65,7 +65,7 @@ impl ScopeStack {
     Self {
       scopes: vec![Scope {
         code: CodeBuilder::default(),
-        loops: Vec::new(),
+        control_flows: Vec::new(),
         symbols,
       }],
     }
