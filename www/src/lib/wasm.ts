@@ -3,11 +3,23 @@ import wasmUrl from '@/wasm/taipan_wasm_bg.wasm?url';
 
 let wasm: Promise<void> | undefined;
 
+/**
+ * Compile Python source to Taipan bytecode using the shared WASM module.
+ *
+ * @param source Python source code to compile.
+ * @returns Structured bytecode emitted by the Taipan compiler.
+ */
 export async function compileSource(source: string) {
   await initialize();
   return compile(source);
 }
 
+/**
+ * Compile and execute Python source, returning captured stdout and result text.
+ *
+ * @param source Python source code to execute.
+ * @returns Captured stdout and the final VM result string.
+ */
 export async function executeSource(source: string) {
   await initialize();
 
@@ -19,6 +31,11 @@ export async function executeSource(source: string) {
   return { output, result };
 }
 
+/**
+ * Initialize the WASM module once and share it across compile and execute calls.
+ *
+ * @returns A promise that resolves once the WASM module is ready.
+ */
 async function initialize() {
   wasm ??= init({ module_or_path: wasmUrl }).then(() => undefined);
   await wasm;

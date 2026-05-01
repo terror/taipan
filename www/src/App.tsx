@@ -109,6 +109,7 @@ const App = () => {
   );
 
   const extensions = useEditorExtensions();
+
   const panelLayout = useDefaultLayout({
     id: PANEL_LAYOUT_STORAGE_KEY,
     panelIds: ['editor-panel', 'result-panel'],
