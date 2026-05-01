@@ -5,6 +5,7 @@ import {
 } from '@/components/ui/resizable';
 import { formatBytecode } from '@/lib/utils';
 import { compileSource, executeSource } from '@/lib/wasm';
+import dedent from 'dedent';
 import { Bot } from 'lucide-react';
 import { useCallback } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
@@ -14,49 +15,56 @@ import { ResultPane } from './components/result-pane';
 import { useEditorExtensions } from './hooks/use-editor-extensions';
 import { usePersistedState } from './hooks/use-persisted-state';
 
-const DEFAULT_SOURCE = `def double(x):
-  return x * 2
+const DEFAULT_SOURCE = dedent`
+  def double(x):
+    return x * 2
 
-value = 0
+  value = 0
 
-while value < 4:
-  print(double(value))
-  value += 1
+  while value < 4:
+    print(double(value))
+    value += 1
 `;
 
 const EXAMPLES: CodeExample[] = [
   {
     name: 'Functions',
-    source: DEFAULT_SOURCE.trim(),
+    source: DEFAULT_SOURCE,
   },
   {
     name: 'Arithmetic',
-    source: `print(1 + 2)
-print(5 - 3)
-print(3 * 4)
-print(7 / 2)
-print(2 ** 10)`,
+    source: dedent`
+      print(1 + 2)
+      print(5 - 3)
+      print(3 * 4)
+      print(7 / 2)
+      print(2 ** 10)
+    `,
   },
   {
     name: 'Strings',
-    source: `foo = "foo"
-bar = "bar"
+    source: dedent`
+      foo = "foo"
+      bar = "bar"
 
-print(foo + bar)
-print(foo * 3)
-print(f"{foo}-{bar}")
-print(len(foo))`,
+      print(foo + bar)
+      print(foo * 3)
+      print(f"{foo}-{bar}")
+      print(len(foo))
+    `,
   },
   {
     name: 'Control flow',
-    source: `value = 0
+    source: dedent`
+      value = 0
 
-while value < 5:
-  if value == 3:
-    break
+      while value < 5:
+        if value == 3:
+          break
 
-  print(value)
-  value += 1`,
+        print(value)
+        value += 1
+    `,
   },
 ];
 
@@ -88,7 +96,7 @@ const App = () => {
   const [editor, setEditor] = usePersistedState<EditorState>(
     EDITOR_STORAGE_KEY,
     {
-      source: DEFAULT_SOURCE.trim(),
+      source: DEFAULT_SOURCE,
     }
   );
 
@@ -159,7 +167,7 @@ const App = () => {
               onChange={(source) => setEditor({ source })}
               onExampleChange={(name) => setExample({ name })}
               onReset={() => {
-                setEditor({ source: DEFAULT_SOURCE.trim() });
+                setEditor({ source: DEFAULT_SOURCE });
                 setExample({ name: EXAMPLES[0].name });
               }}
               onRun={run}
