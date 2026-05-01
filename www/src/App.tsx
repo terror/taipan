@@ -7,11 +7,11 @@ import { type CodeObject, formatBytecode } from '@/lib/bytecode';
 import { compileSource, executeSource } from '@/lib/wasm';
 import { Bot } from 'lucide-react';
 import { useCallback } from 'react';
+import { useDefaultLayout } from 'react-resizable-panels';
 
 import { EditorPane } from './components/editor-pane';
 import { ResultPane } from './components/result-pane';
 import { useEditorExtensions } from './hooks/use-editor-extensions';
-import { usePersistedDoc } from './hooks/use-persisted-doc';
 import { usePersistedState } from './hooks/use-persisted-state';
 
 const DEFAULT_SOURCE = `def double(x):
@@ -65,15 +65,38 @@ const EXAMPLE_STORAGE_KEY = 'taipan:selected-example';
 const PANEL_LAYOUT_STORAGE_KEY = 'taipan:panel-layout';
 const RESULT_STORAGE_KEY = 'taipan:execution-result';
 
+interface ExecutionResult {
+  bytecode: string;
+  error: string | undefined;
+  output: string;
+}
+
+interface EditorState {
+  source: string;
+}
+
+interface ExampleState {
+  name: string;
+}
+
+export interface CodeExample {
+  name: string;
+  source: string;
+}
+
 const App = () => {
-  const [doc, setDoc] = usePersistedDoc(
+  const [editor, setEditor] = usePersistedState<EditorState>(
     EDITOR_STORAGE_KEY,
-    DEFAULT_SOURCE.trim()
+    {
+      source: DEFAULT_SOURCE.trim(),
+    }
   );
 
-  const [example, setExample] = usePersistedDoc(
+  const [example, setExample] = usePersistedState<ExampleState>(
     EXAMPLE_STORAGE_KEY,
-    EXAMPLES[0].name
+    {
+      name: EXAMPLES[0].name,
+    }
   );
 
   const [execution, setExecution] = usePersistedState<ExecutionResult>(
@@ -86,12 +109,16 @@ const App = () => {
   );
 
   const extensions = useEditorExtensions();
+  const panelLayout = useDefaultLayout({
+    id: PANEL_LAYOUT_STORAGE_KEY,
+    panelIds: ['editor-panel', 'result-panel'],
+  });
 
   const run = useCallback(async () => {
     try {
-      const code = (await compileSource(doc)) as CodeObject;
+      const code = (await compileSource(editor.source)) as CodeObject;
 
-      const execution = await executeSource(doc);
+      const execution = await executeSource(editor.source);
 
       setExecution({
         bytecode: formatBytecode(code),
@@ -103,7 +130,7 @@ const App = () => {
         error: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [doc, setExecution]);
+  }, [editor.source, setExecution]);
 
   return (
     <div className='bg-background text-foreground flex h-screen max-w-full flex-col'>
@@ -118,21 +145,21 @@ const App = () => {
 
       <div className='min-h-0 flex-1 overflow-hidden p-4'>
         <ResizablePanelGroup
-          defaultLayout={loadPanelLayout()}
-          onLayoutChanged={savePanelLayout}
+          defaultLayout={panelLayout.defaultLayout}
+          onLayoutChanged={panelLayout.onLayoutChanged}
           orientation='horizontal'
           className='bg-background h-full rounded-lg border shadow-sm'
         >
           <ResizablePanel id='editor-panel' defaultSize='52%' minSize='30%'>
             <EditorPane
               examples={EXAMPLES}
-              example={example}
-              value={doc}
-              onChange={setDoc}
-              onExampleChange={setExample}
+              example={example.name}
+              value={editor.source}
+              onChange={(source) => setEditor({ source })}
+              onExampleChange={(name) => setExample({ name })}
               onReset={() => {
-                setDoc(DEFAULT_SOURCE.trim());
-                setExample(EXAMPLES[0].name);
+                setEditor({ source: DEFAULT_SOURCE.trim() });
+                setExample({ name: EXAMPLES[0].name });
               }}
               onRun={run}
               extensions={extensions}
@@ -155,28 +182,3 @@ const App = () => {
 };
 
 export default App;
-
-interface ExecutionResult {
-  bytecode: string;
-  error: string | undefined;
-  output: string;
-}
-
-export interface CodeExample {
-  name: string;
-  source: string;
-}
-
-function loadPanelLayout() {
-  if (typeof window === 'undefined') {
-    return undefined;
-  }
-
-  const layout = window.localStorage.getItem(PANEL_LAYOUT_STORAGE_KEY);
-
-  return layout ? JSON.parse(layout) : undefined;
-}
-
-function savePanelLayout(layout: Record<string, number>) {
-  window.localStorage.setItem(PANEL_LAYOUT_STORAGE_KEY, JSON.stringify(layout));
-}

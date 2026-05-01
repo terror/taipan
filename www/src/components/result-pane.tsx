@@ -70,7 +70,6 @@ export const ResultPane = ({ bytecode, output, error }: ResultPaneProps) => {
   );
 };
 
-
 function Preformatted({
   value,
   tone,
