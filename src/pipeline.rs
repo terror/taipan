@@ -28,8 +28,11 @@ impl<'a> Pipeline<'a> {
   pub(crate) fn with_default_passes(context: Context<'a>) -> Self {
     let mut pipeline = Self::new(context);
 
-    let passes: Vec<Box<dyn Pass>> =
-      vec![Box::new(CollectSymbols), Box::new(EmitBytecode)];
+    let passes: Vec<Box<dyn Pass>> = vec![
+      Box::new(ValidateSyntax),
+      Box::new(CollectSymbols),
+      Box::new(EmitBytecode),
+    ];
 
     for pass in passes {
       pipeline.add_pass(pass);

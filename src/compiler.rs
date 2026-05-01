@@ -45,9 +45,12 @@ impl Compiler {
 
   fn compile_aug_assign(&mut self, node: &StmtAugAssign) -> Result {
     self.compile_load_target(&node.target)?;
+
     self.compile_expr(&node.value)?;
     self.code_mut().emit(node.op.instruction()?);
+
     self.compile_store(&node.target)?;
+
     Ok(())
   }
 
@@ -99,12 +102,6 @@ impl Compiler {
   }
 
   fn compile_call(&mut self, node: &ExprCall) -> Result {
-    if !node.arguments.keywords.is_empty() {
-      return Err(Error::UnsupportedSyntax {
-        message: "keyword arguments".into(),
-      });
-    }
-
     self.compile_expr(&node.func)?;
 
     let argc = node.arguments.args.len();
@@ -123,12 +120,6 @@ impl Compiler {
   }
 
   fn compile_compare(&mut self, node: &ExprCompare) -> Result {
-    if node.ops.len() != 1 {
-      return Err(Error::UnsupportedSyntax {
-        message: "chained comparisons".into(),
-      });
-    }
-
     self.compile_expr(&node.left)?;
 
     self.compile_expr(&node.comparators[0])?;
@@ -140,11 +131,7 @@ impl Compiler {
       CmpOp::LtE => Instruction::CompareLe,
       CmpOp::Gt => Instruction::CompareGt,
       CmpOp::GtE => Instruction::CompareGe,
-      CmpOp::Is | CmpOp::IsNot | CmpOp::In | CmpOp::NotIn => {
-        return Err(Error::UnsupportedSyntax {
-          message: format!("comparison operator: {}", node.ops[0].as_str()),
-        });
-      }
+      CmpOp::Is | CmpOp::IsNot | CmpOp::In | CmpOp::NotIn => unreachable!(),
     };
 
     self.code_mut().emit(instruction);
@@ -210,18 +197,12 @@ impl Compiler {
           UnaryOp::USub => self.code_mut().emit(Instruction::UnaryNeg),
           UnaryOp::UAdd => self.code_mut().emit(Instruction::UnaryPos),
           UnaryOp::Not => self.code_mut().emit(Instruction::UnaryNot),
-          UnaryOp::Invert => {
-            return Err(Error::UnsupportedSyntax {
-              message: "bitwise invert (~)".into(),
-            });
-          }
+          UnaryOp::Invert => unreachable!(),
         }
 
         Ok(())
       }
-      _ => Err(Error::UnsupportedSyntax {
-        message: format!("expression: {}", expr.name()),
-      }),
+      _ => unreachable!(),
     }
   }
 
@@ -328,9 +309,7 @@ impl Compiler {
         self.code_mut().emit(instruction);
         Ok(())
       }
-      _ => Err(Error::UnsupportedSyntax {
-        message: "complex assignment target".into(),
-      }),
+      _ => unreachable!(),
     }
   }
 
@@ -368,11 +347,7 @@ impl Compiler {
         })?)
       }
       Number::Float(f) => Object::Float(*f),
-      Number::Complex { .. } => {
-        return Err(Error::UnsupportedSyntax {
-          message: "complex numbers".into(),
-        });
-      }
+      Number::Complex { .. } => unreachable!(),
     })
   }
 
@@ -412,9 +387,7 @@ impl Compiler {
       Stmt::Nonlocal(node) => self.compile_nonlocal(node),
       Stmt::Return(node) => self.compile_return(node),
       Stmt::While(node) => self.compile_while(node),
-      _ => Err(Error::UnsupportedSyntax {
-        message: format!("statement: {}", stmt.name()),
-      }),
+      _ => unreachable!(),
     }
   }
 
@@ -425,9 +398,7 @@ impl Compiler {
         self.code_mut().emit(instruction);
         Ok(())
       }
-      _ => Err(Error::UnsupportedSyntax {
-        message: "complex assignment target".into(),
-      }),
+      _ => unreachable!(),
     }
   }
 

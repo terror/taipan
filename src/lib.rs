@@ -7,7 +7,7 @@ use {
   frame::Frame,
   num_traits::ToPrimitive,
   operator_ext::OperatorExt,
-  pass::{CollectSymbols, EmitBytecode, Pass},
+  pass::{CollectSymbols, EmitBytecode, Pass, ValidateSyntax},
   pipeline::Pipeline,
   ruff_python_ast::{
     Alias, BoolOp, CmpOp, ExceptHandler, Expr, ExprBoolOp, ExprCall,
