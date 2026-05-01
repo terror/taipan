@@ -62,27 +62,27 @@ impl CodeBuilder {
     self.code.instructions.push(instruction);
   }
 
-  pub(crate) fn emit_jump(&mut self, label: Label) -> Result {
+  pub(crate) fn emit_jump(&mut self, label: usize) -> Result {
     self.emit_labeled_jump(label, Instruction::Jump)
   }
 
-  pub(crate) fn emit_jump_if_false(&mut self, label: Label) -> Result {
+  pub(crate) fn emit_jump_if_false(&mut self, label: usize) -> Result {
     self.emit_labeled_jump(label, Instruction::PopJumpIfFalse)
   }
 
-  pub(crate) fn emit_jump_if_true(&mut self, label: Label) -> Result {
+  pub(crate) fn emit_jump_if_true(&mut self, label: usize) -> Result {
     self.emit_labeled_jump(label, Instruction::PopJumpIfTrue)
   }
 
   fn emit_labeled_jump(
     &mut self,
-    label: Label,
+    label: usize,
     instruction: fn(u16) -> Instruction,
   ) -> Result {
     let target =
       self
         .labels
-        .get(label.0)
+        .get(label)
         .copied()
         .ok_or_else(|| Error::Compile {
           message: "missing label".into(),
@@ -98,12 +98,9 @@ impl CodeBuilder {
 
     if unresolved {
       let patches =
-        self
-          .patches
-          .get_mut(label.0)
-          .ok_or_else(|| Error::Compile {
-            message: "missing label patches".into(),
-          })?;
+        self.patches.get_mut(label).ok_or_else(|| Error::Compile {
+          message: "missing label patches".into(),
+        })?;
 
       patches.push(index);
     }
@@ -131,8 +128,8 @@ impl CodeBuilder {
     &self.code.instructions
   }
 
-  pub(crate) fn label(&mut self) -> Label {
-    let label = Label(self.labels.len());
+  pub(crate) fn label(&mut self) -> usize {
+    let label = self.labels.len();
 
     self.labels.push(None);
     self.patches.push(Vec::new());
@@ -140,13 +137,12 @@ impl CodeBuilder {
     label
   }
 
-  pub(crate) fn mark(&mut self, label: Label) -> Result {
+  pub(crate) fn mark(&mut self, label: usize) -> Result {
     let target = self.current_offset()?;
 
-    let marked =
-      self.labels.get_mut(label.0).ok_or_else(|| Error::Compile {
-        message: "missing label".into(),
-      })?;
+    let marked = self.labels.get_mut(label).ok_or_else(|| Error::Compile {
+      message: "missing label".into(),
+    })?;
 
     if marked.is_some() {
       return Err(Error::Compile {
@@ -156,7 +152,7 @@ impl CodeBuilder {
 
     *marked = Some(target);
 
-    let patches = self.patches.get(label.0).ok_or_else(|| Error::Compile {
+    let patches = self.patches.get(label).ok_or_else(|| Error::Compile {
       message: "missing label patches".into(),
     })?;
 

@@ -335,8 +335,8 @@ impl Compiler {
   fn compile_loop_body(
     &mut self,
     body: &[Stmt],
-    break_label: Label,
-    continue_label: Label,
+    break_label: usize,
+    continue_label: usize,
   ) -> Result {
     self.scope_mut().loops.push((break_label, continue_label));
 

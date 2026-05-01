@@ -3,7 +3,6 @@ use {
   code_builder::CodeBuilder,
   expr_ext::ExprExt,
   frame::Frame,
-  label::Label,
   num_traits::ToPrimitive,
   operator_ext::OperatorExt,
   ruff_python_ast::{
@@ -39,7 +38,6 @@ mod expr_ext;
 mod frame;
 mod function;
 mod instruction;
-mod label;
 mod machine;
 mod object;
 mod operator_ext;
