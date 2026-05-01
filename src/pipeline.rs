@@ -31,7 +31,7 @@ impl<'a> Pipeline<'a> {
     let mut pipeline = Self::new(context);
 
     let passes: Vec<Box<dyn Pass + 'a>> = vec![
-      Box::new(Lower::new(source)),
+      Box::new(LowerAst::new(source)),
       Box::new(CollectSymbols),
       Box::new(EmitBytecode),
     ];

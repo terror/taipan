@@ -5,7 +5,7 @@ mod emit_bytecode;
 mod lower;
 
 pub(crate) use {
-  collect_symbols::CollectSymbols, emit_bytecode::EmitBytecode, lower::Lower,
+  collect_symbols::CollectSymbols, emit_bytecode::EmitBytecode, lower::LowerAst,
 };
 
 pub(crate) trait Pass {
