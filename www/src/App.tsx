@@ -3,7 +3,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from '@/components/ui/resizable';
-import { type CodeObject, formatBytecode } from '@/lib/bytecode';
+import { formatBytecode } from '@/lib/utils';
 import { compileSource, executeSource } from '@/lib/wasm';
 import { Bot } from 'lucide-react';
 import { useCallback } from 'react';
@@ -117,7 +117,7 @@ const App = () => {
 
   const run = useCallback(async () => {
     try {
-      const code = (await compileSource(editor.source)) as CodeObject;
+      const code = await compileSource(editor.source);
 
       const execution = await executeSource(editor.source);
 

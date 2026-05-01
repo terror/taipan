@@ -1,6 +1,8 @@
 import init, { type Execution, compile, execute } from '@/wasm/taipan_wasm';
 import wasmUrl from '@/wasm/taipan_wasm_bg.wasm?url';
 
+import type { Code } from './types';
+
 let wasm: Promise<void> | undefined;
 
 /**
@@ -11,7 +13,7 @@ let wasm: Promise<void> | undefined;
  */
 export async function compileSource(source: string) {
   await initialize();
-  return compile(source);
+  return compile(source) as Code;
 }
 
 /**

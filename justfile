@@ -73,6 +73,10 @@ test-release-workflow:
   git tag test-release
   git push origin test-release
 
+[group: 'web']
+typeshare:
+  typeshare --lang=typescript --output-file www/src/lib/types.ts .
+
 [group: 'release']
 update-changelog:
   echo >> CHANGELOG.md
@@ -84,12 +88,12 @@ watch +COMMAND='test':
 
 [group: 'web']
 [working-directory: 'www']
-web-build: build-wasm
+web-build: typeshare build-wasm
   bun run build
 
 [group: 'web']
 [working-directory: 'www']
-web-dev: build-wasm
+web-dev: typeshare build-wasm
   bun run dev
 
 [group: 'web']
