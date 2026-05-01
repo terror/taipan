@@ -1,40 +1,50 @@
 import { useCallback, useEffect, useState } from 'react';
 
+interface UsePersistedStateOptions<T> {
+  deserialize?: (value: string) => Partial<T>;
+  serialize?: (value: T) => string;
+}
+
 export function usePersistedState<T extends object>(
   key: string,
   initialValue: T,
-  options?: {
-    serialize?: (value: T) => string;
-    deserialize?: (value: string) => T;
-  }
+  options: UsePersistedStateOptions<T> = {}
 ): [T, (action: Partial<T> | ((prevState: T) => Partial<T>)) => void] {
-  const [state, setFullState] = useState<T>(() => {
-    const savedValue = localStorage.getItem(key);
+  const { deserialize = JSON.parse, serialize = JSON.stringify } = options;
 
-    if (savedValue !== null) {
-      try {
-        return options?.deserialize
-          ? options.deserialize(savedValue)
-          : JSON.parse(savedValue);
-      } catch (error) {
-        console.warn(`Error reading ${key} from localStorage:`, error);
-        return initialValue;
-      }
+  const [state, setFullState] = useState<T>(() => {
+    if (typeof window === 'undefined') {
+      return initialValue;
     }
 
-    return initialValue;
+    const savedValue = window.localStorage.getItem(key);
+
+    if (savedValue === null) {
+      return initialValue;
+    }
+
+    try {
+      return {
+        ...initialValue,
+        ...deserialize(savedValue),
+      };
+    } catch (error) {
+      console.warn(`Error reading ${key} from localStorage:`, error);
+      return initialValue;
+    }
   });
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
     try {
-      localStorage.setItem(
-        key,
-        options?.serialize ? options.serialize(state) : JSON.stringify(state)
-      );
+      window.localStorage.setItem(key, serialize(state));
     } catch (error) {
       console.warn(`Error saving ${key} to localStorage:`, error);
     }
-  }, [key, state, options]);
+  }, [key, serialize, state]);
 
   const setState = useCallback(
     (action: Partial<T> | ((prevState: T) => Partial<T>)) => {
