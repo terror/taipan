@@ -507,6 +507,15 @@ fn too_many_program_paths() -> Result {
 }
 
 #[test]
+fn top_level_return() -> Result {
+  Test::new()?
+    .program("return")
+    .expected_status(1)
+    .expected_stderr(Contains("CompileError: 'return' outside function"))
+    .run()
+}
+
+#[test]
 fn type_errors() -> Result {
   #[track_caller]
   fn case(program: &str, expected: &str) -> Result {

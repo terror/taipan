@@ -359,6 +359,12 @@ impl Compiler {
   }
 
   fn compile_return(&mut self, node: &StmtReturn) -> Result {
+    if self.scopes.is_module() {
+      return Err(Error::Compile {
+        message: "'return' outside function".into(),
+      });
+    }
+
     if let Some(expr) = &node.value {
       self.compile_expr(expr)?;
     } else {

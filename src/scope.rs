@@ -47,6 +47,10 @@ impl ScopeStack {
     self.scopes.pop().unwrap().code.finish()
   }
 
+  pub(crate) fn is_module(&self) -> bool {
+    self.scopes.len() == 1
+  }
+
   pub(crate) fn module(symbols: SymbolTable) -> Self {
     Self {
       scopes: vec![Scope {
