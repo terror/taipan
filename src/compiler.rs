@@ -122,9 +122,18 @@ impl Compiler {
   fn compile_compare(&mut self, node: &ExprCompare) -> Result {
     self.compile_expr(&node.left)?;
 
-    self.compile_expr(&node.comparators[0])?;
+    let comparator =
+      node.comparators.first().ok_or_else(|| Error::Compile {
+        message: "missing comparison operand".into(),
+      })?;
 
-    let instruction = match node.ops[0] {
+    self.compile_expr(comparator)?;
+
+    let op = node.ops.first().ok_or_else(|| Error::Compile {
+      message: "missing comparison operator".into(),
+    })?;
+
+    let instruction = match op {
       CmpOp::Eq => Instruction::CompareEq,
       CmpOp::NotEq => Instruction::CompareNe,
       CmpOp::Lt => Instruction::CompareLt,
