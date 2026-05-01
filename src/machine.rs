@@ -51,7 +51,7 @@ impl<W: Write> Machine<W> {
     match function {
       Object::Function {
         name: _,
-        params,
+        parameters: params,
         code,
       } => {
         if params.len() != argument_count {
@@ -98,7 +98,7 @@ impl<W: Write> Machine<W> {
   }
 
   fn execute(&mut self, code: Code) -> Result<Object> {
-    self.frames.push(Frame::new(code));
+    self.frames.push(Frame::new(Rc::new(code)));
     self.run_loop()
   }
 

@@ -7,8 +7,8 @@ pub enum Object {
   Float(f64),
   Function {
     name: String,
-    params: Vec<String>,
-    code: Code,
+    parameters: Vec<String>,
+    code: Rc<Code>,
   },
   Int(i64),
   #[default]
@@ -373,12 +373,12 @@ impl PartialEq for Object {
       (
         Self::Function {
           name: a_name,
-          params: a_params,
+          parameters: a_params,
           code: a_code,
         },
         Self::Function {
           name: b_name,
-          params: b_params,
+          parameters: b_params,
           code: b_code,
         },
       ) => a_name == b_name && a_params == b_params && a_code == b_code,

@@ -1,7 +1,7 @@
 use super::*;
 
 pub(crate) struct Frame {
-  code: Code,
+  code: Rc<Code>,
   ip: usize,
   locals: Vec<Option<Object>>,
   stack: Vec<Object>,
@@ -98,7 +98,7 @@ impl Frame {
       })
   }
 
-  pub(crate) fn new(code: Code) -> Self {
+  pub(crate) fn new(code: Rc<Code>) -> Self {
     let locals_len = code.locals.len();
 
     Self {
@@ -132,23 +132,21 @@ impl Frame {
   pub(crate) fn pop2(&mut self) -> Result<(Object, Object)> {
     let rhs = self.pop()?;
     let lhs = self.pop()?;
-
     Ok((lhs, rhs))
   }
 
   pub(crate) fn pop_arguments(&mut self, count: u8) -> Result<Vec<Object>> {
-    let count = usize::from(count);
-
-    let start =
-      self
-        .stack
-        .len()
-        .checked_sub(count)
-        .ok_or_else(|| Error::Internal {
-          message: "bytecode stack underflow".into(),
-        })?;
-
-    Ok(self.stack.split_off(start))
+    Ok(
+      self.stack.split_off(
+        self
+          .stack
+          .len()
+          .checked_sub(usize::from(count))
+          .ok_or_else(|| Error::Internal {
+            message: "bytecode stack underflow".into(),
+          })?,
+      ),
+    )
   }
 
   pub(crate) fn push(&mut self, object: Object) {
@@ -170,7 +168,7 @@ impl Frame {
   }
 
   pub(crate) fn with_arguments(
-    code: Code,
+    code: Rc<Code>,
     arguments: Vec<Object>,
   ) -> Result<Self> {
     if arguments.len() > code.locals.len() {

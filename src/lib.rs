@@ -19,6 +19,7 @@ use {
     collections::{HashMap, HashSet},
     fmt::{self, Display, Formatter},
     io::{self, Stdout, Write},
+    rc::Rc,
   },
   stmt_ext::StmtExt,
   symbol_table::{Symbol, SymbolTable},

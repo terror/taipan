@@ -260,8 +260,8 @@ impl Compiler {
 
     let const_index = self.code_mut().add_const(Object::Function {
       name: name.clone(),
-      params: parameters,
-      code: function_code,
+      parameters,
+      code: Rc::new(function_code),
     })?;
 
     self.code_mut().emit(Instruction::MakeFunction(const_index));
@@ -524,6 +524,10 @@ mod tests {
       }
     }
 
+    fn function_code(self) -> Rc<Code> {
+      Rc::new(self.code())
+    }
+
     fn instructions(self, instructions: &[Instruction]) -> Self {
       Self {
         instructions: instructions.to_vec(),
@@ -712,11 +716,11 @@ mod tests {
     .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
     .constant(Object::Function {
       name: "foo".to_owned(),
-      params: vec!["bar".to_owned()],
+      parameters: vec!["bar".to_owned()],
       code: Test::default()
         .instructions(&[Instruction::LoadFast(0), Instruction::Return])
         .locals(&["bar"])
-        .code(),
+        .function_code(),
     })
     .names(&["foo"])
     .run();
@@ -733,7 +737,7 @@ mod tests {
     .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
     .constant(Object::Function {
       name: "baz".to_owned(),
-      params: vec!["foo".to_owned(), "bar".to_owned()],
+      parameters: vec!["foo".to_owned(), "bar".to_owned()],
       code: Test::default()
         .instructions(&[
           Instruction::LoadFast(0),
@@ -742,7 +746,7 @@ mod tests {
           Instruction::Return,
         ])
         .locals(&["foo", "bar"])
-        .code(),
+        .function_code(),
     })
     .names(&["baz"])
     .run();
@@ -760,7 +764,7 @@ mod tests {
     .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
     .constant(Object::Function {
       name: "foo".to_owned(),
-      params: Vec::new(),
+      parameters: Vec::new(),
       code: Test::default()
         .instructions(&[
           Instruction::LoadConst(0),
@@ -771,7 +775,7 @@ mod tests {
         .constant(Object::Int(1))
         .constant(Object::None)
         .names(&["bar"])
-        .code(),
+        .function_code(),
     })
     .names(&["foo"])
     .run();
@@ -789,7 +793,7 @@ mod tests {
     .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
     .constant(Object::Function {
       name: "foo".to_owned(),
-      params: Vec::new(),
+      parameters: Vec::new(),
       code: Test::default()
         .instructions(&[
           Instruction::LoadFast(0),
@@ -802,7 +806,7 @@ mod tests {
         .constant(Object::Int(1))
         .constant(Object::None)
         .locals(&["bar"])
-        .code(),
+        .function_code(),
     })
     .names(&["foo"])
     .run();
@@ -915,7 +919,7 @@ mod tests {
     .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
     .constant(Object::Function {
       name: "foo".to_owned(),
-      params: Vec::new(),
+      parameters: Vec::new(),
       code: Test::default()
         .instructions(&[
           Instruction::MakeFunction(0),
@@ -925,15 +929,15 @@ mod tests {
         ])
         .constant(Object::Function {
           name: "bar".to_owned(),
-          params: Vec::new(),
+          parameters: Vec::new(),
           code: Test::default()
             .instructions(&[Instruction::LoadConst(0), Instruction::Return])
             .constant(Object::Int(1))
-            .code(),
+            .function_code(),
         })
         .constant(Object::None)
         .locals(&["bar"])
-        .code(),
+        .function_code(),
     })
     .names(&["foo"])
     .run();
