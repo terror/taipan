@@ -64,9 +64,13 @@ impl<W: Write> Machine<W> {
           });
         }
 
-        self
-          .frames
-          .push(Frame::with_arguments(code, arguments, closure)?);
+        self.frames.push(
+          Frame::default()
+            .code(code)
+            .arguments(arguments)
+            .freevars(closure)
+            .build()?,
+        );
       }
       Object::Builtin(builtin) => {
         let result = builtin.call(&arguments, &mut self.output)?;
@@ -101,7 +105,10 @@ impl<W: Write> Machine<W> {
   }
 
   fn execute(&mut self, code: Code) -> Result<Object> {
-    self.frames.push(Frame::new(Rc::new(code)));
+    self
+      .frames
+      .push(Frame::default().code(Rc::new(code)).build()?);
+
     self.run_loop()
   }
 

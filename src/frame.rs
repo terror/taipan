@@ -1,7 +1,9 @@
 use super::*;
 
+#[derive(Default)]
 pub(crate) struct Frame {
-  code: Rc<Code>,
+  arguments: Option<Vec<Object>>,
+  code: Option<Rc<Code>>,
   freevars: Vec<Rc<RefCell<Option<Object>>>>,
   ip: usize,
   locals: Vec<Rc<RefCell<Option<Object>>>>,
@@ -9,6 +11,37 @@ pub(crate) struct Frame {
 }
 
 impl Frame {
+  pub(crate) fn arguments(self, arguments: Vec<Object>) -> Self {
+    Self {
+      arguments: Some(arguments),
+      ..self
+    }
+  }
+
+  pub(crate) fn build(mut self) -> Result<Self> {
+    let code = self.code.as_ref().ok_or_else(|| Error::Internal {
+      message: "frame missing code".into(),
+    })?;
+
+    let arguments = self.arguments.take().unwrap_or_default();
+
+    if arguments.len() > code.locals.len() {
+      return Err(Error::Internal {
+        message: "invalid argument count".into(),
+      });
+    }
+
+    self.locals = (0..code.locals.len())
+      .map(|_| Rc::new(RefCell::new(None)))
+      .collect();
+
+    for (index, argument) in arguments.into_iter().enumerate() {
+      *self.locals[index].borrow_mut() = Some(argument);
+    }
+
+    Ok(self)
+  }
+
   pub(crate) fn build_string(&mut self, count: u16) -> Result {
     let count = usize::from(count);
 
@@ -37,7 +70,11 @@ impl Frame {
     &self,
     name: &str,
   ) -> Result<Rc<RefCell<Option<Object>>>> {
-    if let Some(index) = self.code.locals.iter().position(|local| local == name)
+    if let Some(index) = self
+      .code_ref()
+      .locals
+      .iter()
+      .position(|local| local == name)
     {
       return self
         .locals
@@ -49,7 +86,7 @@ impl Frame {
     }
 
     if let Some(index) = self
-      .code
+      .code_ref()
       .freevars
       .iter()
       .position(|freevar| freevar == name)
@@ -66,25 +103,43 @@ impl Frame {
     })
   }
 
+  pub(crate) fn code(self, code: Rc<Code>) -> Self {
+    Self {
+      code: Some(code),
+      ..self
+    }
+  }
+
+  fn code_ref(&self) -> &Code {
+    self
+      .code
+      .as_ref()
+      .expect("frame should have code after build")
+  }
+
   pub(crate) fn finish(self) -> Object {
     self.stack.into_iter().last().unwrap_or(Object::None)
   }
 
   fn free_name(&self, index: usize) -> Result<String> {
-    self
-      .code
-      .freevars
-      .get(index)
-      .cloned()
-      .ok_or_else(|| Error::Internal {
+    self.code_ref().freevars.get(index).cloned().ok_or_else(|| {
+      Error::Internal {
         message: "invalid free variable index".into(),
-      })
+      }
+    })
+  }
+
+  pub(crate) fn freevars(
+    self,
+    freevars: Vec<Rc<RefCell<Option<Object>>>>,
+  ) -> Self {
+    Self { freevars, ..self }
   }
 
   pub(crate) fn jump(&mut self, target: u16) -> Result {
     let target = usize::from(target);
 
-    if target > self.code.instructions.len() {
+    if target > self.code_ref().instructions.len() {
       return Err(Error::Internal {
         message: "invalid jump target".into(),
       });
@@ -97,7 +152,7 @@ impl Frame {
 
   pub(crate) fn load_const(&self, index: u16) -> Result<Object> {
     self
-      .code
+      .code_ref()
       .constants
       .get(usize::from(index))
       .cloned()
@@ -140,7 +195,7 @@ impl Frame {
 
   fn local_name(&self, index: usize) -> Result<String> {
     self
-      .code
+      .code_ref()
       .locals
       .get(index)
       .cloned()
@@ -151,7 +206,7 @@ impl Frame {
 
   pub(crate) fn name(&self, index: u16) -> Result<String> {
     self
-      .code
+      .code_ref()
       .names
       .get(usize::from(index))
       .cloned()
@@ -160,12 +215,8 @@ impl Frame {
       })
   }
 
-  pub(crate) fn new(code: Rc<Code>) -> Self {
-    Self::with_closure(code, Vec::new())
-  }
-
   pub(crate) fn next_instruction(&mut self) -> Option<Instruction> {
-    let instruction = self.code.instructions.get(self.ip).copied()?;
+    let instruction = self.code_ref().instructions.get(self.ip).copied()?;
 
     self.ip += 1;
 
@@ -232,42 +283,5 @@ impl Frame {
     *self.locals[index].borrow_mut() = Some(object);
 
     Ok(())
-  }
-
-  pub(crate) fn with_arguments(
-    code: Rc<Code>,
-    arguments: Vec<Object>,
-    freevars: Vec<Rc<RefCell<Option<Object>>>>,
-  ) -> Result<Self> {
-    if arguments.len() > code.locals.len() {
-      return Err(Error::Internal {
-        message: "invalid argument count".into(),
-      });
-    }
-
-    let frame = Self::with_closure(code, freevars);
-
-    for (index, argument) in arguments.into_iter().enumerate() {
-      *frame.locals[index].borrow_mut() = Some(argument);
-    }
-
-    Ok(frame)
-  }
-
-  pub(crate) fn with_closure(
-    code: Rc<Code>,
-    freevars: Vec<Rc<RefCell<Option<Object>>>>,
-  ) -> Self {
-    let locals_len = code.locals.len();
-
-    Self {
-      code,
-      freevars,
-      ip: 0,
-      locals: (0..locals_len)
-        .map(|_| Rc::new(RefCell::new(None)))
-        .collect(),
-      stack: Vec::new(),
-    }
   }
 }
