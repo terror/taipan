@@ -39,3 +39,29 @@ impl OperatorExt for Operator {
     }
   }
 }
+
+impl OperatorExt for BinaryOperator {
+  fn instruction(&self) -> Result<Instruction> {
+    Ok(match self {
+      Self::Add => Instruction::BinaryAdd,
+      Self::Div => Instruction::BinaryDiv,
+      Self::FloorDiv => Instruction::BinaryFloorDiv,
+      Self::Mod => Instruction::BinaryMod,
+      Self::Mul => Instruction::BinaryMul,
+      Self::Pow => Instruction::BinaryPow,
+      Self::Sub => Instruction::BinarySub,
+    })
+  }
+
+  fn name(&self) -> &'static str {
+    match self {
+      Self::Add => "Add",
+      Self::Div => "Div",
+      Self::FloorDiv => "FloorDiv",
+      Self::Mod => "Mod",
+      Self::Mul => "Mul",
+      Self::Pow => "Pow",
+      Self::Sub => "Sub",
+    }
+  }
+}

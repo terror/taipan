@@ -20,20 +20,24 @@ impl Compiler {
       .code()
   }
 
-  fn compile_ann_assign(&mut self, node: &StmtAnnAssign) -> Result {
-    if let Some(value) = &node.value {
+  fn compile_ann_assign(
+    &mut self,
+    target: &Expr,
+    value: Option<&Expr>,
+  ) -> Result {
+    if let Some(value) = value {
       self.compile_expr(value)?;
-      self.compile_store(&node.target)?;
+      self.compile_store(target)?;
     }
 
     Ok(())
   }
 
-  fn compile_assign(&mut self, node: &StmtAssign) -> Result {
-    self.compile_expr(&node.value)?;
+  fn compile_assign(&mut self, targets: &[Expr], value: &Expr) -> Result {
+    self.compile_expr(value)?;
 
-    for (i, target) in node.targets.iter().enumerate() {
-      if i < node.targets.len() - 1 {
+    for (i, target) in targets.iter().enumerate() {
+      if i < targets.len() - 1 {
         self.code_mut().emit(Instruction::Dup);
       }
 
@@ -43,13 +47,18 @@ impl Compiler {
     Ok(())
   }
 
-  fn compile_aug_assign(&mut self, node: &StmtAugAssign) -> Result {
-    self.compile_load_target(&node.target)?;
+  fn compile_aug_assign(
+    &mut self,
+    target: &Expr,
+    operator: BinaryOperator,
+    value: &Expr,
+  ) -> Result {
+    self.compile_load_target(target)?;
 
-    self.compile_expr(&node.value)?;
-    self.code_mut().emit(node.op.instruction()?);
+    self.compile_expr(value)?;
+    self.code_mut().emit(operator.instruction()?);
 
-    self.compile_store(&node.target)?;
+    self.compile_store(target)?;
 
     Ok(())
   }
@@ -62,21 +71,22 @@ impl Compiler {
     Ok(())
   }
 
-  fn compile_bool_op(&mut self, node: &ExprBoolOp) -> Result {
-    let is_and = matches!(node.op, BoolOp::And);
-
+  fn compile_bool_op(
+    &mut self,
+    operator: BoolOperator,
+    values: &[Expr],
+  ) -> Result {
     let end = self.code_mut().label();
 
-    for (i, value) in node.values.iter().enumerate() {
+    for (i, value) in values.iter().enumerate() {
       self.compile_expr(value)?;
 
-      if i < node.values.len() - 1 {
+      if i < values.len() - 1 {
         self.code_mut().emit(Instruction::Dup);
 
-        if is_and {
-          self.code_mut().emit_jump_if_false(end)?;
-        } else {
-          self.code_mut().emit_jump_if_true(end)?;
+        match operator {
+          BoolOperator::And => self.code_mut().emit_jump_if_false(end)?,
+          BoolOperator::Or => self.code_mut().emit_jump_if_true(end)?,
         }
 
         self.code_mut().emit(Instruction::Pop);
@@ -101,12 +111,12 @@ impl Compiler {
     self.code_mut().emit_jump(control_flow.break_label)
   }
 
-  fn compile_call(&mut self, node: &ExprCall) -> Result {
-    self.compile_expr(&node.func)?;
+  fn compile_call(&mut self, function: &Expr, arguments: &[Expr]) -> Result {
+    self.compile_expr(function)?;
 
-    let argc = node.arguments.args.len();
+    let argc = arguments.len();
 
-    for argument in &*node.arguments.args {
+    for argument in arguments {
       self.compile_expr(argument)?;
     }
 
@@ -119,28 +129,22 @@ impl Compiler {
     Ok(())
   }
 
-  fn compile_compare(&mut self, node: &ExprCompare) -> Result {
-    self.compile_expr(&node.left)?;
+  fn compile_compare(
+    &mut self,
+    lhs: &Expr,
+    operator: CompareOperator,
+    rhs: &Expr,
+  ) -> Result {
+    self.compile_expr(lhs)?;
+    self.compile_expr(rhs)?;
 
-    let comparator =
-      node.comparators.first().ok_or_else(|| Error::Compile {
-        message: "missing comparison operand".into(),
-      })?;
-
-    self.compile_expr(comparator)?;
-
-    let op = node.ops.first().ok_or_else(|| Error::Compile {
-      message: "missing comparison operator".into(),
-    })?;
-
-    let instruction = match op {
-      CmpOp::Eq => Instruction::CompareEq,
-      CmpOp::NotEq => Instruction::CompareNe,
-      CmpOp::Lt => Instruction::CompareLt,
-      CmpOp::LtE => Instruction::CompareLe,
-      CmpOp::Gt => Instruction::CompareGt,
-      CmpOp::GtE => Instruction::CompareGe,
-      CmpOp::Is | CmpOp::IsNot | CmpOp::In | CmpOp::NotIn => unreachable!(),
+    let instruction = match operator {
+      CompareOperator::Eq => Instruction::CompareEq,
+      CompareOperator::Ne => Instruction::CompareNe,
+      CompareOperator::Lt => Instruction::CompareLt,
+      CompareOperator::Le => Instruction::CompareLe,
+      CompareOperator::Gt => Instruction::CompareGt,
+      CompareOperator::Ge => Instruction::CompareGe,
     };
 
     self.code_mut().emit(instruction);
@@ -163,68 +167,64 @@ impl Compiler {
 
   fn compile_expr(&mut self, expr: &Expr) -> Result {
     match expr {
-      Expr::BinOp(node) => {
-        self.compile_expr(&node.left)?;
-        self.compile_expr(&node.right)?;
-        self.code_mut().emit(node.op.instruction()?);
+      Expr::Binary { lhs, operator, rhs } => {
+        self.compile_expr(lhs)?;
+        self.compile_expr(rhs)?;
+        self.code_mut().emit(operator.instruction()?);
         Ok(())
       }
-      Expr::BoolOp(node) => self.compile_bool_op(node),
-      Expr::BooleanLiteral(node) => self.emit_const(Object::Bool(node.value)),
-      Expr::Call(node) => self.compile_call(node),
-      Expr::Compare(node) => self.compile_compare(node),
-      Expr::If(node) => {
+      Expr::Bool(value) => self.emit_const(Object::Bool(*value)),
+      Expr::BoolOp { operator, values } => {
+        self.compile_bool_op(*operator, values)
+      }
+      Expr::Call {
+        arguments,
+        function,
+      } => self.compile_call(function, arguments),
+      Expr::Compare { lhs, operator, rhs } => {
+        self.compile_compare(lhs, *operator, rhs)
+      }
+      Expr::Float(value) => self.emit_const(Object::Float(*value)),
+      Expr::If { body, orelse, test } => {
         let false_label = self.code_mut().label();
         let end = self.code_mut().label();
 
-        self.compile_expr(&node.test)?;
+        self.compile_expr(test)?;
         self.code_mut().emit_jump_if_false(false_label)?;
 
-        self.compile_expr(&node.body)?;
+        self.compile_expr(body)?;
         self.code_mut().emit_jump(end)?;
         self.code_mut().mark(false_label)?;
 
-        self.compile_expr(&node.orelse)?;
+        self.compile_expr(orelse)?;
         self.code_mut().mark(end)?;
 
         Ok(())
       }
-      Expr::Name(node) => {
-        let instruction = self.resolve_load(&node.id)?;
+      Expr::Int(value) => self.emit_const(Object::Int(*value)),
+      Expr::Name(name) => {
+        let instruction = self.resolve_load(name)?;
         self.code_mut().emit(instruction);
         Ok(())
       }
-      Expr::NoneLiteral(_) => self.emit_none(),
-      Expr::NumberLiteral(node) => self.compile_number(node),
-      Expr::StringLiteral(node) => {
-        self.emit_const(Object::Str(node.value.to_str().to_owned()))
-      }
-      Expr::UnaryOp(node) => {
-        self.compile_expr(&node.operand)?;
+      Expr::None => self.emit_none(),
+      Expr::String(value) => self.emit_const(Object::Str(value.clone())),
+      Expr::Unary { operand, operator } => {
+        self.compile_expr(operand)?;
 
-        match node.op {
-          UnaryOp::USub => self.code_mut().emit(Instruction::UnaryNeg),
-          UnaryOp::UAdd => self.code_mut().emit(Instruction::UnaryPos),
-          UnaryOp::Not => self.code_mut().emit(Instruction::UnaryNot),
-          UnaryOp::Invert => unreachable!(),
+        match operator {
+          UnaryOperator::USub => self.code_mut().emit(Instruction::UnaryNeg),
+          UnaryOperator::UAdd => self.code_mut().emit(Instruction::UnaryPos),
+          UnaryOperator::Not => self.code_mut().emit(Instruction::UnaryNot),
         }
 
         Ok(())
       }
-      _ => unreachable!(),
     }
   }
 
-  fn compile_function_def(&mut self, node: &StmtFunctionDef) -> Result {
-    let parameters = node
-      .parameters
-      .posonlyargs
-      .iter()
-      .chain(node.parameters.args.iter())
-      .map(|argument| argument.parameter.name.id.to_string())
-      .collect::<Vec<_>>();
-
-    let symbols = SymbolTable::function(&node.parameters, &node.body)?;
+  fn compile_function_def(&mut self, function: &FunctionDef) -> Result {
+    let symbols = SymbolTable::function(function)?;
 
     self.scopes.enter_function(symbols);
 
@@ -232,7 +232,7 @@ impl Compiler {
       self.code_mut().add_local(&local)?;
     }
 
-    self.compile_body(&node.body)?;
+    self.compile_body(&function.body)?;
 
     let last_is_return = self
       .scope()
@@ -252,53 +252,56 @@ impl Compiler {
       self.ensure_capturable(freevar)?;
     }
 
-    let name = node.name.id.to_string();
-
     let const_index = self.code_mut().add_const(Object::Function {
       closure: Vec::new(),
-      name: name.clone(),
-      parameters,
+      name: function.name.clone(),
+      parameters: function.parameters.clone(),
       code: Rc::new(function_code),
     })?;
 
     self.code_mut().emit(Instruction::MakeFunction(const_index));
 
-    let instruction = self.resolve_store(&name)?;
+    let instruction = self.resolve_store(&function.name)?;
 
     self.code_mut().emit(instruction);
 
     Ok(())
   }
 
-  fn compile_if(&mut self, node: &StmtIf) -> Result {
+  fn compile_if(
+    &mut self,
+    test: &Expr,
+    body: &[Stmt],
+    clauses: &[(Option<Expr>, Vec<Stmt>)],
+  ) -> Result {
     let end = self.code_mut().label();
     let first_clause = self.code_mut().label();
 
     let mut next_label = Some(first_clause);
 
-    self.compile_expr(&node.test)?;
+    self.compile_expr(test)?;
     self.code_mut().emit_jump_if_false(first_clause)?;
 
-    self.compile_body(&node.body)?;
+    self.compile_body(body)?;
 
-    for clause in &node.elif_else_clauses {
+    for (test, body) in clauses {
       self.code_mut().emit_jump(end)?;
 
       if let Some(label) = next_label {
         self.code_mut().mark(label)?;
       }
 
-      if let Some(test) = &clause.test {
+      if let Some(test) = test {
         let label = self.code_mut().label();
         next_label = Some(label);
 
         self.compile_expr(test)?;
         self.code_mut().emit_jump_if_false(label)?;
 
-        self.compile_body(&clause.body)?;
+        self.compile_body(body)?;
       } else {
         next_label = None;
-        self.compile_body(&clause.body)?;
+        self.compile_body(body)?;
       }
     }
 
@@ -314,11 +317,13 @@ impl Compiler {
   fn compile_load_target(&mut self, target: &Expr) -> Result {
     match target {
       Expr::Name(name) => {
-        let instruction = self.resolve_load(&name.id)?;
+        let instruction = self.resolve_load(name)?;
         self.code_mut().emit(instruction);
         Ok(())
       }
-      _ => unreachable!(),
+      _ => Err(Error::Compile {
+        message: "invalid assignment target".into(),
+      }),
     }
   }
 
@@ -340,34 +345,22 @@ impl Compiler {
     result
   }
 
-  fn compile_nonlocal(&mut self, node: &StmtNonlocal) -> Result {
-    for name in &node.names {
-      self.resolve_free_index(&name.id)?;
+  fn compile_nonlocal(&mut self, names: &[String]) -> Result {
+    for name in names {
+      self.resolve_free_index(name)?;
     }
 
     Ok(())
   }
 
-  fn compile_number(&mut self, node: &ExprNumberLiteral) -> Result {
-    self.emit_const(match &node.value {
-      Number::Int(int) => {
-        Object::Int(int.as_i64().ok_or_else(|| Error::Compile {
-          message: "integer too large".into(),
-        })?)
-      }
-      Number::Float(f) => Object::Float(*f),
-      Number::Complex { .. } => unreachable!(),
-    })
-  }
-
-  fn compile_return(&mut self, node: &StmtReturn) -> Result {
+  fn compile_return(&mut self, value: Option<&Expr>) -> Result {
     if self.scopes.is_module() {
       return Err(Error::Compile {
         message: "'return' outside function".into(),
       });
     }
 
-    if let Some(expr) = &node.value {
+    if let Some(expr) = value {
       self.compile_expr(expr)?;
     } else {
       self.emit_none()?;
@@ -380,52 +373,70 @@ impl Compiler {
 
   fn compile_stmt(&mut self, stmt: &Stmt) -> Result {
     match stmt {
-      Stmt::AnnAssign(node) => self.compile_ann_assign(node),
-      Stmt::Assign(node) => self.compile_assign(node),
-      Stmt::AugAssign(node) => self.compile_aug_assign(node),
-      Stmt::Break(_) => self.compile_break(),
-      Stmt::Continue(_) => self.compile_continue(),
-      Stmt::Expr(node) => {
-        self.compile_expr(&node.value)?;
+      Stmt::AnnAssign { target, value } => {
+        self.compile_ann_assign(target, value.as_ref())
+      }
+      Stmt::Assign { targets, value } => self.compile_assign(targets, value),
+      Stmt::AugAssign {
+        operator,
+        target,
+        value,
+      } => self.compile_aug_assign(target, *operator, value),
+      Stmt::Break => self.compile_break(),
+      Stmt::Continue => self.compile_continue(),
+      Stmt::Expr(expr) => {
+        self.compile_expr(expr)?;
         self.code_mut().emit(Instruction::Pop);
         Ok(())
       }
-      Stmt::FunctionDef(node) => self.compile_function_def(node),
-      Stmt::If(node) => self.compile_if(node),
-      Stmt::Global(_) | Stmt::Pass(_) => Ok(()),
-      Stmt::Nonlocal(node) => self.compile_nonlocal(node),
-      Stmt::Return(node) => self.compile_return(node),
-      Stmt::While(node) => self.compile_while(node),
-      _ => unreachable!(),
+      Stmt::FunctionDef(function) => self.compile_function_def(function),
+      Stmt::Global(_) | Stmt::Pass => Ok(()),
+      Stmt::If {
+        body,
+        clauses,
+        test,
+      } => self.compile_if(test, body, clauses),
+      Stmt::Nonlocal(names) => self.compile_nonlocal(names),
+      Stmt::Return(value) => self.compile_return(value.as_ref()),
+      Stmt::While { body, orelse, test } => {
+        self.compile_while(test, body, orelse)
+      }
     }
   }
 
   fn compile_store(&mut self, target: &Expr) -> Result {
     match target {
       Expr::Name(name) => {
-        let instruction = self.resolve_store(&name.id)?;
+        let instruction = self.resolve_store(name)?;
         self.code_mut().emit(instruction);
         Ok(())
       }
-      _ => unreachable!(),
+      _ => Err(Error::Compile {
+        message: "invalid assignment target".into(),
+      }),
     }
   }
 
-  fn compile_while(&mut self, node: &StmtWhile) -> Result {
+  fn compile_while(
+    &mut self,
+    test: &Expr,
+    body: &[Stmt],
+    else_body: &[Stmt],
+  ) -> Result {
     let start = self.code_mut().label();
     let orelse = self.code_mut().label();
     let end = self.code_mut().label();
 
     self.code_mut().mark(start)?;
 
-    self.compile_expr(&node.test)?;
+    self.compile_expr(test)?;
     self.code_mut().emit_jump_if_false(orelse)?;
 
-    self.compile_loop_body(&node.body, end, start)?;
+    self.compile_loop_body(body, end, start)?;
 
     self.code_mut().emit_jump(start)?;
     self.code_mut().mark(orelse)?;
-    self.compile_body(&node.orelse)?;
+    self.compile_body(else_body)?;
     self.code_mut().mark(end)?;
 
     Ok(())

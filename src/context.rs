@@ -1,14 +1,17 @@
 use super::*;
 
 pub(crate) struct Context<'a> {
+  ast: Option<Module>,
   code: Option<Code>,
   module: &'a ModModule,
   symbols: Option<SymbolTable>,
 }
 
 impl<'a> Context<'a> {
-  pub(crate) fn body(&self) -> &[Stmt] {
-    &self.module.body
+  pub(crate) fn ast(&self) -> Result<&Module> {
+    self.ast.as_ref().ok_or_else(|| Error::Compile {
+      message: "compiler pipeline did not lower module".into(),
+    })
   }
 
   pub(crate) fn code(self) -> Result<Code> {
@@ -17,12 +20,21 @@ impl<'a> Context<'a> {
     })
   }
 
+  pub(crate) fn module(&self) -> &'a ModModule {
+    self.module
+  }
+
   pub(crate) fn new(module: &'a ModModule) -> Self {
     Self {
+      ast: None,
       code: None,
       module,
       symbols: None,
     }
+  }
+
+  pub(crate) fn set_ast(&mut self, ast: Module) {
+    self.ast = Some(ast);
   }
 
   pub(crate) fn set_code(&mut self, code: Code) {

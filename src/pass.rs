@@ -2,11 +2,10 @@ use super::*;
 
 mod collect_symbols;
 mod emit_bytecode;
-mod validate_syntax;
+mod lower;
 
 pub(crate) use {
-  collect_symbols::CollectSymbols, emit_bytecode::EmitBytecode,
-  validate_syntax::ValidateSyntax,
+  collect_symbols::CollectSymbols, emit_bytecode::EmitBytecode, lower::Lower,
 };
 
 pub(crate) trait Pass {

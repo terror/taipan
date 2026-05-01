@@ -1,4 +1,8 @@
 use {
+  ast::{
+    BinaryOperator, BoolOperator, CompareOperator, Expr, FunctionDef, Module,
+    Stmt, UnaryOperator,
+  },
   builtins::BUILTINS,
   code_builder::CodeBuilder,
   context::Context,
@@ -7,14 +11,9 @@ use {
   frame::Frame,
   num_traits::ToPrimitive,
   operator_ext::OperatorExt,
-  pass::{CollectSymbols, EmitBytecode, Pass, ValidateSyntax},
+  pass::{CollectSymbols, EmitBytecode, Lower, Pass},
   pipeline::Pipeline,
-  ruff_python_ast::{
-    Alias, BoolOp, CmpOp, ExceptHandler, Expr, ExprBoolOp, ExprCall,
-    ExprCompare, ExprNumberLiteral, ModModule, Number, Operator, Parameters,
-    Stmt, StmtAnnAssign, StmtAssign, StmtAugAssign, StmtFunctionDef, StmtIf,
-    StmtNonlocal, StmtReturn, StmtWhile, UnaryOp,
-  },
+  ruff_python_ast::{BoolOp, CmpOp, ModModule, Number, Operator, UnaryOp},
   ruff_python_parser::ParseError,
   scope::Scope,
   scope_kind::ScopeKind,
@@ -32,6 +31,7 @@ use {
   symbol_table::SymbolTable,
 };
 
+mod ast;
 mod builtin;
 mod builtins;
 mod code;

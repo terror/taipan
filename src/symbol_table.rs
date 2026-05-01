@@ -12,21 +12,6 @@ pub(crate) struct SymbolTable {
 }
 
 impl SymbolTable {
-  fn analyze_arguments(
-    &mut self,
-    arguments: &ruff_python_ast::Arguments,
-  ) -> Result {
-    for argument in &*arguments.args {
-      self.analyze_expr(argument)?;
-    }
-
-    for keyword in &*arguments.keywords {
-      self.analyze_expr(&keyword.value)?;
-    }
-
-    Ok(())
-  }
-
   fn analyze_body(&mut self, body: &[Stmt]) -> Result {
     for stmt in body {
       self.analyze_stmt(stmt)?;
@@ -35,202 +20,63 @@ impl SymbolTable {
     Ok(())
   }
 
-  fn analyze_class_def(
-    &mut self,
-    node: &ruff_python_ast::StmtClassDef,
-  ) -> Result {
-    for decorator in &node.decorator_list {
-      self.analyze_expr(&decorator.expression)?;
-    }
-
-    if let Some(arguments) = &node.arguments {
-      self.analyze_arguments(arguments)?;
-    }
-
-    self.bind_local(&node.name.id)
-  }
-
-  fn analyze_comprehensions(
-    &mut self,
-    comprehensions: &[ruff_python_ast::Comprehension],
-  ) -> Result {
-    for comprehension in comprehensions {
-      self.analyze_expr(&comprehension.iter)?;
-      self.bind_target(&comprehension.target)?;
-
-      for condition in &comprehension.ifs {
-        self.analyze_expr(condition)?;
-      }
-    }
-
-    Ok(())
-  }
-
-  fn analyze_elements(&mut self, elements: &[Expr]) -> Result {
-    for element in elements {
-      self.analyze_expr(element)?;
-    }
-
-    Ok(())
-  }
-
-  fn analyze_except_handler(&mut self, handler: &ExceptHandler) -> Result {
-    let ExceptHandler::ExceptHandler(handler) = handler;
-
-    if let Some(type_) = &handler.type_ {
-      self.analyze_expr(type_)?;
-    }
-
-    if let Some(name) = &handler.name {
-      self.bind_local(&name.id)?;
-    }
-
-    self.analyze_body(&handler.body)
-  }
-
   fn analyze_expr(&mut self, expr: &Expr) -> Result {
     match expr {
-      Expr::Attribute(node) => self.analyze_expr(&node.value)?,
-      Expr::Await(node) => self.analyze_expr(&node.value)?,
-      Expr::BinOp(node) => {
-        self.analyze_expr(&node.left)?;
-        self.analyze_expr(&node.right)?;
-      }
-      Expr::BoolOp(node) => self.analyze_elements(&node.values)?,
-      Expr::Call(node) => {
-        self.analyze_expr(&node.func)?;
-        self.analyze_arguments(&node.arguments)?;
-      }
-      Expr::Compare(node) => {
-        self.analyze_expr(&node.left)?;
-        self.analyze_elements(&node.comparators)?;
-      }
-      Expr::Dict(node) => {
-        for item in &node.items {
-          if let Some(key) = &item.key {
-            self.analyze_expr(key)?;
-          }
-
-          self.analyze_expr(&item.value)?;
-        }
-      }
-      Expr::DictComp(node) => {
-        self.analyze_expr(&node.key)?;
-        self.analyze_expr(&node.value)?;
-        self.analyze_comprehensions(&node.generators)?;
-      }
-      Expr::Generator(node) => {
-        self.analyze_expr(&node.elt)?;
-        self.analyze_comprehensions(&node.generators)?;
-      }
-      Expr::If(node) => {
-        self.analyze_expr(&node.test)?;
-        self.analyze_expr(&node.body)?;
-        self.analyze_expr(&node.orelse)?;
-      }
-      Expr::List(node) => self.analyze_elements(&node.elts)?,
-      Expr::ListComp(node) => {
-        self.analyze_expr(&node.elt)?;
-        self.analyze_comprehensions(&node.generators)?;
-      }
-      Expr::Name(node) => self.bind_use(&node.id),
-      Expr::Named(node) => {
-        self.analyze_expr(&node.value)?;
-        self.bind_target(&node.target)?;
-      }
-      Expr::Set(node) => self.analyze_elements(&node.elts)?,
-      Expr::SetComp(node) => {
-        self.analyze_expr(&node.elt)?;
-        self.analyze_comprehensions(&node.generators)?;
-      }
-      Expr::Slice(node) => {
-        for expr in [&node.lower, &node.upper, &node.step].into_iter().flatten()
-        {
-          self.analyze_expr(expr)?;
-        }
-      }
-      Expr::Starred(node) => self.analyze_expr(&node.value)?,
-      Expr::UnaryOp(node) => self.analyze_expr(&node.operand)?,
-      Expr::Subscript(node) => {
-        self.analyze_expr(&node.value)?;
-        self.analyze_expr(&node.slice)?;
-      }
-      Expr::Tuple(node) => self.analyze_elements(&node.elts)?,
-      Expr::Yield(node) => {
-        if let Some(value) = &node.value {
+      Expr::BoolOp { values, .. } => {
+        for value in values {
           self.analyze_expr(value)?;
         }
       }
-      Expr::YieldFrom(node) => self.analyze_expr(&node.value)?,
-      Expr::BooleanLiteral(_)
-      | Expr::BytesLiteral(_)
-      | Expr::EllipsisLiteral(_)
-      | Expr::FString(_)
-      | Expr::IpyEscapeCommand(_)
-      | Expr::Lambda(_)
-      | Expr::NoneLiteral(_)
-      | Expr::NumberLiteral(_)
-      | Expr::StringLiteral(_)
-      | Expr::TString(_) => {}
+      Expr::Call {
+        arguments,
+        function,
+      } => {
+        self.analyze_expr(function)?;
+
+        for argument in arguments {
+          self.analyze_expr(argument)?;
+        }
+      }
+      Expr::Binary { lhs, rhs, .. } | Expr::Compare { lhs, rhs, .. } => {
+        self.analyze_expr(lhs)?;
+        self.analyze_expr(rhs)?;
+      }
+      Expr::If { body, orelse, test } => {
+        self.analyze_expr(test)?;
+        self.analyze_expr(body)?;
+        self.analyze_expr(orelse)?;
+      }
+      Expr::Name(name) => self.bind_use(name),
+      Expr::Unary { operand, .. } => self.analyze_expr(operand)?,
+      Expr::Bool(_)
+      | Expr::Float(_)
+      | Expr::Int(_)
+      | Expr::None
+      | Expr::String(_) => {}
     }
 
     Ok(())
   }
 
-  fn analyze_for(&mut self, node: &ruff_python_ast::StmtFor) -> Result {
-    self.analyze_expr(&node.iter)?;
-    self.bind_target(&node.target)?;
-    self.analyze_body(&node.body)?;
-    self.analyze_body(&node.orelse)
+  fn analyze_function_header(&mut self, function: &FunctionDef) -> Result {
+    self.bind_local(&function.name)
   }
 
-  fn analyze_function_header(&mut self, node: &StmtFunctionDef) -> Result {
-    for decorator in &node.decorator_list {
-      self.analyze_expr(&decorator.expression)?;
-    }
+  fn analyze_if(
+    &mut self,
+    test: &Expr,
+    body: &[Stmt],
+    clauses: &[(Option<Expr>, Vec<Stmt>)],
+  ) -> Result {
+    self.analyze_expr(test)?;
+    self.analyze_body(body)?;
 
-    self.analyze_parameter_expressions(&node.parameters)
-  }
-
-  fn analyze_if(&mut self, node: &StmtIf) -> Result {
-    self.analyze_expr(&node.test)?;
-    self.analyze_body(&node.body)?;
-
-    for clause in &node.elif_else_clauses {
-      if let Some(test) = &clause.test {
+    for (test, body) in clauses {
+      if let Some(test) = test {
         self.analyze_expr(test)?;
       }
 
-      self.analyze_body(&clause.body)?;
-    }
-
-    Ok(())
-  }
-
-  fn analyze_parameter_expressions(
-    &mut self,
-    parameters: &Parameters,
-  ) -> Result {
-    for parameter in parameters.iter_non_variadic_params() {
-      if let Some(default) = parameter.default() {
-        self.analyze_expr(default)?;
-      }
-
-      if let Some(annotation) = parameter.annotation() {
-        self.analyze_expr(annotation)?;
-      }
-    }
-
-    if let Some(vararg) = parameters.vararg.as_deref()
-      && let Some(annotation) = vararg.annotation()
-    {
-      self.analyze_expr(annotation)?;
-    }
-
-    if let Some(kwarg) = parameters.kwarg.as_deref()
-      && let Some(annotation) = kwarg.annotation()
-    {
-      self.analyze_expr(annotation)?;
+      self.analyze_body(body)?;
     }
 
     Ok(())
@@ -238,123 +84,55 @@ impl SymbolTable {
 
   fn analyze_stmt(&mut self, stmt: &Stmt) -> Result {
     match stmt {
-      Stmt::AnnAssign(node) => {
-        self.bind_target(&node.target)?;
-        self.analyze_expr(&node.annotation)?;
+      Stmt::AnnAssign { target, value } => {
+        self.bind_target(target)?;
 
-        if let Some(value) = &node.value {
+        if let Some(value) = value {
           self.analyze_expr(value)?;
         }
       }
-      Stmt::Assign(node) => {
-        self.analyze_expr(&node.value)?;
+      Stmt::Assign { targets, value } => {
+        self.analyze_expr(value)?;
 
-        for target in &node.targets {
+        for target in targets {
           self.bind_target(target)?;
         }
       }
-      Stmt::AugAssign(node) => {
-        self.bind_target(&node.target)?;
-        self.analyze_expr(&node.value)?;
+      Stmt::AugAssign { target, value, .. } => {
+        self.bind_target(target)?;
+        self.analyze_expr(value)?;
       }
-      Stmt::Assert(node) => {
-        self.analyze_expr(&node.test)?;
-
-        if let Some(msg) = &node.msg {
-          self.analyze_expr(msg)?;
+      Stmt::Expr(expr) => self.analyze_expr(expr)?,
+      Stmt::FunctionDef(function) => self.analyze_function_header(function)?,
+      Stmt::Global(names) => {
+        for name in names {
+          self.bind_global(name)?;
         }
       }
-      Stmt::ClassDef(node) => self.analyze_class_def(node)?,
-      Stmt::Delete(node) => {
-        for target in &node.targets {
-          self.bind_target(target)?;
+      Stmt::If {
+        body,
+        clauses,
+        test,
+      } => self.analyze_if(test, body, clauses)?,
+      Stmt::Nonlocal(names) => {
+        for name in names {
+          self.bind_nonlocal(name)?;
         }
       }
-      Stmt::Expr(node) => self.analyze_expr(&node.value)?,
-      Stmt::For(node) => self.analyze_for(node)?,
-      Stmt::FunctionDef(node) => {
-        self.analyze_function_header(node)?;
-        self.bind_local(&node.name.id)?;
-      }
-      Stmt::Global(node) => {
-        for name in &node.names {
-          self.bind_global(&name.id)?;
-        }
-      }
-      Stmt::If(node) => self.analyze_if(node)?,
-      Stmt::Import(node) => {
-        for alias in &node.names {
-          self.bind_import(alias)?;
-        }
-      }
-      Stmt::ImportFrom(node) => {
-        for alias in &node.names {
-          self.bind_import_from(alias)?;
-        }
-      }
-      Stmt::Nonlocal(node) => {
-        for name in &node.names {
-          self.bind_nonlocal(&name.id)?;
-        }
-      }
-      Stmt::Raise(node) => {
-        if let Some(exc) = &node.exc {
-          self.analyze_expr(exc)?;
-        }
-
-        if let Some(cause) = &node.cause {
-          self.analyze_expr(cause)?;
-        }
-      }
-      Stmt::Return(node) => {
-        if let Some(value) = &node.value {
+      Stmt::Return(value) => {
+        if let Some(value) = value {
           self.analyze_expr(value)?;
         }
       }
-      Stmt::Try(node) => self.analyze_try(node)?,
-      Stmt::TypeAlias(node) => {
-        self.bind_target(&node.name)?;
-        self.analyze_expr(&node.value)?;
+      Stmt::While { body, orelse, test } => {
+        self.analyze_expr(test)?;
+        self.analyze_body(body)?;
+        self.analyze_body(orelse)?;
       }
-      Stmt::While(node) => self.analyze_while(node)?,
-      Stmt::With(node) => self.analyze_with(node)?,
-      Stmt::Break(_)
-      | Stmt::Continue(_)
-      | Stmt::IpyEscapeCommand(_)
-      | Stmt::Match(_)
-      | Stmt::Pass(_) => {}
+      Stmt::Break | Stmt::Continue | Stmt::Pass => {}
     }
 
     Ok(())
-  }
-
-  fn analyze_try(&mut self, node: &ruff_python_ast::StmtTry) -> Result {
-    self.analyze_body(&node.body)?;
-
-    for handler in &node.handlers {
-      self.analyze_except_handler(handler)?;
-    }
-
-    self.analyze_body(&node.orelse)?;
-    self.analyze_body(&node.finalbody)
-  }
-
-  fn analyze_while(&mut self, node: &StmtWhile) -> Result {
-    self.analyze_expr(&node.test)?;
-    self.analyze_body(&node.body)?;
-    self.analyze_body(&node.orelse)
-  }
-
-  fn analyze_with(&mut self, node: &ruff_python_ast::StmtWith) -> Result {
-    for item in &node.items {
-      self.analyze_expr(&item.context_expr)?;
-
-      if let Some(optional_vars) = &item.optional_vars {
-        self.bind_target(optional_vars)?;
-      }
-    }
-
-    self.analyze_body(&node.body)
   }
 
   fn bind_global(&mut self, name: &str) -> Result {
@@ -381,28 +159,6 @@ impl SymbolTable {
     self.globals.insert(name.to_owned());
 
     Ok(())
-  }
-
-  fn bind_import(&mut self, alias: &Alias) -> Result {
-    if let Some(name) = &alias.asname {
-      return self.bind_local(&name.id);
-    }
-
-    if let Some(name) = alias.name.id.split('.').next() {
-      self.bind_local(name)?;
-    }
-
-    Ok(())
-  }
-
-  fn bind_import_from(&mut self, alias: &Alias) -> Result {
-    if alias.name.id == "*" {
-      return Ok(());
-    }
-
-    let name = alias.asname.as_ref().unwrap_or(&alias.name);
-
-    self.bind_local(&name.id)
   }
 
   fn bind_local(&mut self, name: &str) -> Result {
@@ -479,9 +235,9 @@ impl SymbolTable {
     self.bind_local(name)
   }
 
-  fn bind_parameters(&mut self, parameters: &Parameters) -> Result {
+  fn bind_parameters(&mut self, parameters: &[String]) -> Result {
     for parameter in parameters {
-      self.bind_parameter(parameter.name().as_str())?;
+      self.bind_parameter(parameter)?;
     }
 
     Ok(())
@@ -489,45 +245,26 @@ impl SymbolTable {
 
   fn bind_target(&mut self, target: &Expr) -> Result {
     match target {
-      Expr::Attribute(node) => self.analyze_expr(&node.value)?,
-      Expr::List(node) => {
-        for element in &node.elts {
-          self.bind_target(element)?;
-        }
-      }
-      Expr::Tuple(node) => {
-        for element in &node.elts {
-          self.bind_target(element)?;
-        }
-      }
-      Expr::Name(name) => self.bind_local(&name.id)?,
-      Expr::Starred(node) => self.bind_target(&node.value)?,
-      Expr::Subscript(node) => {
-        self.analyze_expr(&node.value)?;
-        self.analyze_expr(&node.slice)?;
-      }
-      _ => {}
+      Expr::Name(name) => self.bind_local(name),
+      _ => Err(Error::Compile {
+        message: "invalid assignment target".into(),
+      }),
     }
-
-    Ok(())
   }
 
   fn bind_use(&mut self, name: &str) {
     self.uses.insert(name.to_owned());
   }
 
-  pub(crate) fn function(
-    parameters: &Parameters,
-    body: &[Stmt],
-  ) -> Result<Self> {
+  pub(crate) fn function(function: &FunctionDef) -> Result<Self> {
     let mut table = Self {
       kind: ScopeKind::Function,
       ..Self::default()
     };
 
-    table.bind_parameters(parameters)?;
+    table.bind_parameters(&function.parameters)?;
 
-    table.analyze_body(body)?;
+    table.analyze_body(&function.body)?;
 
     Ok(table)
   }
@@ -573,15 +310,17 @@ mod tests {
     ruff_python_parser::{Mode, parse},
   };
 
-  fn module(source: &str) -> ModModule {
-    parse(source, Mode::Module.into())
+  fn module(source: &str) -> Module {
+    let module = parse(source, Mode::Module.into())
       .unwrap()
       .try_into_module()
       .unwrap()
-      .into_syntax()
+      .into_syntax();
+
+    Lower::module(&module).unwrap()
   }
 
-  fn function(source: &str) -> StmtFunctionDef {
+  fn function(source: &str) -> FunctionDef {
     match module(source).body.into_iter().next().unwrap() {
       Stmt::FunctionDef(function) => function,
       _ => panic!("expected function definition"),
@@ -598,9 +337,7 @@ mod tests {
       "
     });
 
-    let error = SymbolTable::function(&function.parameters, &function.body)
-      .unwrap_err()
-      .to_string();
+    let error = SymbolTable::function(&function).unwrap_err().to_string();
 
     assert_eq!(
       error,
@@ -619,46 +356,13 @@ mod tests {
     });
 
     assert_eq!(
-      SymbolTable::function(&function.parameters, &function.body).unwrap(),
+      SymbolTable::function(&function).unwrap(),
       SymbolTable {
         bindings: HashSet::from(["bar".to_owned()]),
         globals: HashSet::new(),
         kind: ScopeKind::Function,
         local_indices: HashMap::from([("bar".to_owned(), 0)]),
         locals: vec!["bar".to_owned()],
-        nonlocals: HashSet::new(),
-        uses: HashSet::new(),
-      }
-    );
-  }
-
-  #[test]
-  fn imports_bind_locals() {
-    let function = function(indoc! {
-      "
-      def foo():
-        import bar.baz
-        import qux as quux
-        from quuz import corge
-      "
-    });
-
-    assert_eq!(
-      SymbolTable::function(&function.parameters, &function.body).unwrap(),
-      SymbolTable {
-        bindings: HashSet::from([
-          "bar".to_owned(),
-          "quux".to_owned(),
-          "corge".to_owned(),
-        ]),
-        globals: HashSet::new(),
-        kind: ScopeKind::Function,
-        local_indices: HashMap::from([
-          ("bar".to_owned(), 0),
-          ("quux".to_owned(), 1),
-          ("corge".to_owned(), 2),
-        ]),
-        locals: vec!["bar".to_owned(), "quux".to_owned(), "corge".to_owned()],
         nonlocals: HashSet::new(),
         uses: HashSet::new(),
       }
@@ -679,32 +383,6 @@ mod tests {
         locals: Vec::new(),
         nonlocals: HashSet::new(),
         uses: HashSet::new(),
-      }
-    );
-  }
-
-  #[test]
-  fn tuple_assignment_binds_locals() {
-    let function = function(indoc! {
-      "
-      def foo():
-        bar, baz = qux
-      "
-    });
-
-    assert_eq!(
-      SymbolTable::function(&function.parameters, &function.body).unwrap(),
-      SymbolTable {
-        bindings: HashSet::from(["bar".to_owned(), "baz".to_owned()]),
-        globals: HashSet::new(),
-        kind: ScopeKind::Function,
-        local_indices: HashMap::from([
-          ("bar".to_owned(), 0),
-          ("baz".to_owned(), 1),
-        ]),
-        locals: vec!["bar".to_owned(), "baz".to_owned()],
-        nonlocals: HashSet::new(),
-        uses: HashSet::from(["qux".to_owned()]),
       }
     );
   }
