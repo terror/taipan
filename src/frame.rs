@@ -1,47 +1,26 @@
 use super::*;
 
-#[derive(Default)]
+#[derive(TypedBuilder)]
+#[builder(
+  builder_method(vis = "pub(crate)"),
+  builder_type(vis = "pub(crate)"),
+  build_method(vis = "pub(crate)", into = Result<Frame>)
+)]
 pub(crate) struct Frame {
-  arguments: Option<Vec<Object>>,
-  code: Option<Rc<Code>>,
+  #[builder(default)]
+  arguments: Vec<Object>,
+  code: Rc<Code>,
+  #[builder(default)]
   freevars: Vec<Rc<RefCell<Option<Object>>>>,
+  #[builder(default, setter(skip))]
   ip: usize,
+  #[builder(default, setter(skip))]
   locals: Vec<Rc<RefCell<Option<Object>>>>,
+  #[builder(default, setter(skip))]
   stack: Vec<Object>,
 }
 
 impl Frame {
-  pub(crate) fn arguments(self, arguments: Vec<Object>) -> Self {
-    Self {
-      arguments: Some(arguments),
-      ..self
-    }
-  }
-
-  pub(crate) fn build(mut self) -> Result<Self> {
-    let code = self.code.as_ref().ok_or_else(|| Error::Internal {
-      message: "frame missing code".into(),
-    })?;
-
-    let arguments = self.arguments.take().unwrap_or_default();
-
-    if arguments.len() > code.locals.len() {
-      return Err(Error::Internal {
-        message: "invalid argument count".into(),
-      });
-    }
-
-    self.locals = (0..code.locals.len())
-      .map(|_| Rc::new(RefCell::new(None)))
-      .collect();
-
-    for (index, argument) in arguments.into_iter().enumerate() {
-      *self.locals[index].borrow_mut() = Some(argument);
-    }
-
-    Ok(self)
-  }
-
   pub(crate) fn build_string(&mut self, count: u16) -> Result {
     let count = usize::from(count);
 
@@ -103,18 +82,8 @@ impl Frame {
     })
   }
 
-  pub(crate) fn code(self, code: Rc<Code>) -> Self {
-    Self {
-      code: Some(code),
-      ..self
-    }
-  }
-
   fn code_ref(&self) -> &Code {
-    self
-      .code
-      .as_ref()
-      .expect("frame should have code after build")
+    &self.code
   }
 
   pub(crate) fn finish(self) -> Object {
@@ -127,13 +96,6 @@ impl Frame {
         message: "invalid free variable index".into(),
       }
     })
-  }
-
-  pub(crate) fn freevars(
-    self,
-    freevars: Vec<Rc<RefCell<Option<Object>>>>,
-  ) -> Self {
-    Self { freevars, ..self }
   }
 
   pub(crate) fn jump(&mut self, target: u16) -> Result {
@@ -283,5 +245,25 @@ impl Frame {
     *self.locals[index].borrow_mut() = Some(object);
 
     Ok(())
+  }
+}
+
+impl From<Frame> for Result<Frame> {
+  fn from(mut frame: Frame) -> Self {
+    if frame.arguments.len() > frame.code.locals.len() {
+      return Err(Error::Internal {
+        message: "invalid argument count".into(),
+      });
+    }
+
+    frame.locals = (0..frame.code.locals.len())
+      .map(|_| Rc::new(RefCell::new(None)))
+      .collect();
+
+    for (index, argument) in frame.arguments.drain(..).enumerate() {
+      *frame.locals[index].borrow_mut() = Some(argument);
+    }
+
+    Ok(frame)
   }
 }

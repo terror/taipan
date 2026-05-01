@@ -34,6 +34,7 @@ use {
   stmt_ext::StmtExt,
   symbol::Symbol,
   symbol_table::SymbolTable,
+  typed_builder::TypedBuilder,
   typeshare::typeshare,
 };
 

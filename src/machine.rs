@@ -65,7 +65,7 @@ impl<W: Write> Machine<W> {
         }
 
         self.frames.push(
-          Frame::default()
+          Frame::builder()
             .code(code)
             .arguments(arguments)
             .freevars(closure)
@@ -107,7 +107,7 @@ impl<W: Write> Machine<W> {
   fn execute(&mut self, code: Code) -> Result<Object> {
     self
       .frames
-      .push(Frame::default().code(Rc::new(code)).build()?);
+      .push(Frame::builder().code(Rc::new(code)).build()?);
 
     self.run_loop()
   }
