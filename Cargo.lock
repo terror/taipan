@@ -1172,6 +1172,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "taipan-changelog"
+version = "0.0.0"
+dependencies = [
+ "regex",
+]
+
+[[package]]
+name = "taipan-wasm"
+version = "0.0.0"
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

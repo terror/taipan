@@ -3,6 +3,22 @@ name = "taipan"
 version = "0.1.0"
 edition = "2024"
 
+[lints]
+workspace = true
+
+[workspace]
+members = [".", "crates/*"]
+resolver = "2"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+arbitrary-source-item-ordering = "deny"
+pedantic = { level = "deny", priority = -1 }
+wildcard_imports = "allow"
+
+[workspace.lints.rust]
+unreachable_pub = "deny"
+
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
 num-traits = "0.2.19"
@@ -18,15 +34,6 @@ indoc = "2.0.7"
 pretty_assertions = "1.4.1"
 tempfile = "3.27.0"
 unindent = "0.2.4"
-
-[lints.clippy]
-all = { level = "deny", priority = -1 }
-arbitrary-source-item-ordering = "deny"
-pedantic = { level = "deny", priority = -1 }
-wildcard_imports = "allow"
-
-[lints.rust]
-unreachable_pub = "deny"
 
 [profile.release]
 lto = true
