@@ -54,6 +54,10 @@ jobs:
       working-directory: ./www
       run: wasm-pack build ../crates/taipan-wasm --target web --out-dir ../../www/src/wasm
 
+    - name: Format
+      working-directory: ./www
+      run: bun run format-check
+
     - name: Lint
       working-directory: ./www
       run: bun run lint
