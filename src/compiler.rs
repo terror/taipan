@@ -16,7 +16,7 @@ impl Compiler {
   /// Returns an error if the module contains unsupported syntax.
   pub fn compile(source: &str, module: &ModModule) -> Result<Code> {
     Pipeline::with_default_passes(
-      Context::default().module(module).source(source).build()?,
+      Context::builder().module(module).source(source).build(),
     )
     .run()?
     .code()
