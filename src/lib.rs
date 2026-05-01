@@ -14,6 +14,7 @@ use {
   },
   ruff_python_parser::ParseError,
   scope::{Scope, ScopeStack},
+  scope_kind::ScopeKind,
   snafu::Snafu,
   std::{
     cell::RefCell,
@@ -42,6 +43,7 @@ mod machine;
 mod object;
 mod operator_ext;
 mod scope;
+mod scope_kind;
 mod stmt_ext;
 mod symbol;
 mod symbol_table;

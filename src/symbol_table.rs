@@ -1,12 +1,5 @@
 use super::*;
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) enum ScopeKind {
-  Function,
-  #[default]
-  Module,
-}
-
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct SymbolTable {
   bindings: HashSet<String>,
