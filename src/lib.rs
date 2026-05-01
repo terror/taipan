@@ -11,7 +11,7 @@ use {
   frame::Frame,
   num_traits::ToPrimitive,
   operator_ext::OperatorExt,
-  pass::{CollectSymbols, EmitBytecode, Lower, Pass},
+  pass::{CollectSymbols, EmitBytecode, LowerAst, Pass},
   pipeline::Pipeline,
   ruff_python_ast::{
     BoolOp, CmpOp, ConversionFlag, FStringPart, InterpolatedStringElement,

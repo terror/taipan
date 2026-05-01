@@ -1,10 +1,10 @@
 use super::*;
 
-pub(crate) struct Lower<'a> {
+pub(crate) struct LowerAst<'a> {
   source: &'a str,
 }
 
-impl<'a> Lower<'a> {
+impl<'a> LowerAst<'a> {
   fn binary_operator(operator: Operator) -> Result<BinaryOperator> {
     match operator {
       Operator::Add => Ok(BinaryOperator::Add),
@@ -331,7 +331,7 @@ impl<'a> Lower<'a> {
   }
 }
 
-impl Pass for Lower<'_> {
+impl Pass for LowerAst<'_> {
   fn run(&mut self, context: &mut Context<'_>) -> Result {
     context.set_ast(self.module(context.syntax())?);
     Ok(())
