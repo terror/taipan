@@ -118,13 +118,28 @@ impl<W: Write> Machine<W> {
   ) -> Result<Option<Object>> {
     match instruction {
       Instruction::BinaryAdd => self.binary_operation(Object::binary_add)?,
+      Instruction::BinaryBitAnd => {
+        self.binary_operation(Object::binary_bit_and)?;
+      }
+      Instruction::BinaryBitOr => {
+        self.binary_operation(Object::binary_bit_or)?;
+      }
+      Instruction::BinaryBitXor => {
+        self.binary_operation(Object::binary_bit_xor)?;
+      }
       Instruction::BinaryDiv => self.binary_operation(Object::binary_div)?,
       Instruction::BinaryFloorDiv => {
         self.binary_operation(Object::binary_floor_div)?;
       }
+      Instruction::BinaryLShift => {
+        self.binary_operation(Object::binary_lshift)?;
+      }
       Instruction::BinaryMod => self.binary_operation(Object::binary_mod)?,
       Instruction::BinaryMul => self.binary_operation(Object::binary_mul)?,
       Instruction::BinaryPow => self.binary_operation(Object::binary_pow)?,
+      Instruction::BinaryRShift => {
+        self.binary_operation(Object::binary_rshift)?;
+      }
       Instruction::BinarySub => self.binary_operation(Object::binary_sub)?,
       Instruction::BuildString(count) => self.build_string(count)?,
       Instruction::CallFunction(argc) => self.call_function(argc)?,
@@ -150,6 +165,7 @@ impl<W: Write> Machine<W> {
       Instruction::StoreFast(index) => self.store_fast(index)?,
       Instruction::StoreFree(index) => self.store_free(index)?,
       Instruction::StoreName(index) => self.store_name(index)?,
+      Instruction::UnaryInvert => self.unary_invert()?,
       Instruction::UnaryNeg => self.unary_neg()?,
       Instruction::UnaryNot => self.unary_not()?,
       Instruction::UnaryPos => self.unary_pos()?,
@@ -317,6 +333,14 @@ impl<W: Write> Machine<W> {
     let value = self.frame_mut()?.pop()?;
 
     self.globals.insert(name, value);
+
+    Ok(())
+  }
+
+  fn unary_invert(&mut self) -> Result {
+    let value = self.frame_mut()?.pop()?;
+
+    self.frame_mut()?.push(value.unary_invert()?);
 
     Ok(())
   }
