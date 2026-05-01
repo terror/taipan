@@ -1,11 +1,14 @@
 use {
   builtins::BUILTINS,
   code_builder::CodeBuilder,
+  context::Context,
   control_flow::ControlFlow,
   expr_ext::ExprExt,
   frame::Frame,
   num_traits::ToPrimitive,
   operator_ext::OperatorExt,
+  pass::{CollectSymbols, EmitBytecode, Pass},
+  pipeline::Pipeline,
   ruff_python_ast::{
     Alias, BoolOp, CmpOp, ExceptHandler, Expr, ExprBoolOp, ExprCall,
     ExprCompare, ExprNumberLiteral, ModModule, Number, Operator, Parameters,
@@ -34,6 +37,7 @@ mod builtins;
 mod code;
 mod code_builder;
 mod compiler;
+mod context;
 mod control_flow;
 mod error;
 mod expr_ext;
@@ -43,6 +47,8 @@ mod instruction;
 mod machine;
 mod object;
 mod operator_ext;
+mod pass;
+mod pipeline;
 mod scope;
 mod scope_kind;
 mod scope_stack;

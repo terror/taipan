@@ -15,15 +15,9 @@ impl Compiler {
   ///
   /// Returns an error if the module contains unsupported syntax.
   pub fn compile(module: &ModModule) -> Result<Code> {
-    let symbols = SymbolTable::module(&module.body)?;
-
-    let mut compiler = Self {
-      scopes: ScopeStack::module(symbols),
-    };
-
-    compiler.compile_body(&module.body)?;
-
-    compiler.scopes.finish()
+    Pipeline::with_default_passes(Context::new(module))
+      .run()?
+      .code()
   }
 
   fn compile_ann_assign(&mut self, node: &StmtAnnAssign) -> Result {
@@ -57,7 +51,7 @@ impl Compiler {
     Ok(())
   }
 
-  fn compile_body(&mut self, body: &[Stmt]) -> Result {
+  pub(crate) fn compile_body(&mut self, body: &[Stmt]) -> Result {
     for stmt in body {
       self.compile_stmt(stmt)?;
     }
@@ -486,6 +480,16 @@ impl Compiler {
           })
         }
       }
+    }
+  }
+
+  pub(crate) fn finish(self) -> Result<Code> {
+    self.scopes.finish()
+  }
+
+  pub(crate) fn new(symbols: SymbolTable) -> Self {
+    Self {
+      scopes: ScopeStack::module(symbols),
     }
   }
 
