@@ -26,6 +26,7 @@ import { useState } from 'react';
 
 export const EditorSettingsDialog = () => {
   const { settings, updateSettings } = useEditorSettings();
+
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
 
   return (

@@ -1,6 +1,14 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { usePersistedState } from '@/hooks/use-persisted-state';
 import { AlertTriangle, Binary, CheckCircle2, Terminal } from 'lucide-react';
-import { useEffect, useState } from 'react';
+
+const RESULT_TAB_STORAGE_KEY = 'taipan:result-tab';
+
+type ResultTab = 'bytecode' | 'output';
+
+interface ResultTabState {
+  tab: ResultTab;
+}
 
 interface ResultPaneProps {
   bytecode: string;
@@ -9,24 +17,15 @@ interface ResultPaneProps {
 }
 
 export const ResultPane = ({ bytecode, output, error }: ResultPaneProps) => {
-  const [tab, setTab] = useState<ResultTab>(() => {
-    if (typeof window === 'undefined') {
-      return 'output';
-    }
-
-    const tab = window.localStorage.getItem(RESULT_TAB_STORAGE_KEY);
-
-    return tab === 'bytecode' ? 'bytecode' : 'output';
-  });
-
-  useEffect(() => {
-    window.localStorage.setItem(RESULT_TAB_STORAGE_KEY, tab);
-  }, [tab]);
+  const [state, setState] = usePersistedState<ResultTabState>(
+    RESULT_TAB_STORAGE_KEY,
+    { tab: 'output' }
+  );
 
   return (
     <Tabs
-      value={tab}
-      onValueChange={(value) => setTab(value as ResultTab)}
+      value={state.tab}
+      onValueChange={(value) => setState({ tab: value as ResultTab })}
       className='flex h-full min-h-0 flex-col gap-0'
     >
       <div className='bg-panel flex h-11 items-center justify-between border-b px-3'>
@@ -71,9 +70,6 @@ export const ResultPane = ({ bytecode, output, error }: ResultPaneProps) => {
   );
 };
 
-const RESULT_TAB_STORAGE_KEY = 'taipan:result-tab';
-
-type ResultTab = 'bytecode' | 'output';
 
 function Preformatted({
   value,
