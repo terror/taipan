@@ -17,6 +17,19 @@ impl CodeBuilder {
     Ok(index)
   }
 
+  pub(crate) fn add_freevar(&mut self, name: &str) -> Result<u16> {
+    if let Some(index) = self.code.freevars.iter().position(|n| n == name) {
+      return Self::index(index, "free variable table overflow");
+    }
+
+    let index =
+      Self::index(self.code.freevars.len(), "free variable table overflow")?;
+
+    self.code.freevars.push(name.to_owned());
+
+    Ok(index)
+  }
+
   pub(crate) fn add_local(&mut self, name: &str) -> Result<u16> {
     if let Some(index) = self.code.locals.iter().position(|n| n == name) {
       return Self::index(index, "local table overflow");

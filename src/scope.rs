@@ -47,6 +47,22 @@ impl ScopeStack {
     self.scopes.pop().unwrap().code.finish()
   }
 
+  pub(crate) fn has_enclosing_binding(&self, name: &str) -> bool {
+    self
+      .scopes
+      .iter()
+      .enumerate()
+      .rev()
+      .skip(1)
+      .any(|(index, scope)| {
+        index != 0
+          && matches!(
+            scope.symbols.resolve(name),
+            Symbol::Local | Symbol::Nonlocal
+          )
+      })
+  }
+
   pub(crate) fn is_module(&self) -> bool {
     self.scopes.len() == 1
   }

@@ -256,9 +256,14 @@ impl Compiler {
 
     let function_code = self.scopes.exit_scope()?;
 
+    for freevar in &function_code.freevars {
+      self.ensure_capturable(freevar)?;
+    }
+
     let name = node.name.id.to_string();
 
     let const_index = self.code_mut().add_const(Object::Function {
+      closure: Vec::new(),
       name: name.clone(),
       parameters,
       code: Rc::new(function_code),
@@ -342,6 +347,14 @@ impl Compiler {
     result
   }
 
+  fn compile_nonlocal(&mut self, node: &StmtNonlocal) -> Result {
+    for name in &node.names {
+      self.resolve_free_index(&name.id)?;
+    }
+
+    Ok(())
+  }
+
   fn compile_number(&mut self, node: &ExprNumberLiteral) -> Result {
     self.emit_const(match &node.value {
       Number::Int(int) => {
@@ -390,10 +403,8 @@ impl Compiler {
       }
       Stmt::FunctionDef(node) => self.compile_function_def(node),
       Stmt::If(node) => self.compile_if(node),
-      Stmt::Nonlocal(_) => Err(Error::UnsupportedSyntax {
-        message: "nonlocal (not yet implemented)".into(),
-      }),
       Stmt::Global(_) | Stmt::Pass(_) => Ok(()),
+      Stmt::Nonlocal(node) => self.compile_nonlocal(node),
       Stmt::Return(node) => self.compile_return(node),
       Stmt::While(node) => self.compile_while(node),
       _ => Err(Error::UnsupportedSyntax {
@@ -447,6 +458,44 @@ impl Compiler {
     self.emit_const(Object::None)
   }
 
+  fn ensure_capturable(&mut self, name: &str) -> Result {
+    match self.scope().symbols.resolve(name) {
+      Symbol::Local => Ok(()),
+      Symbol::Nonlocal => {
+        self.resolve_free_index(name)?;
+        Ok(())
+      }
+      Symbol::Global | Symbol::Name => {
+        if self.scopes.has_enclosing_binding(name) {
+          self.code_mut().add_freevar(name)?;
+          Ok(())
+        } else {
+          Err(Error::Compile {
+            message: format!("no binding for nonlocal '{name}' found"),
+          })
+        }
+      }
+    }
+  }
+
+  fn resolve_free_index(&mut self, name: &str) -> Result<u16> {
+    if self.scopes.has_enclosing_binding(name) {
+      self.code_mut().add_freevar(name)
+    } else {
+      Err(Error::Compile {
+        message: format!("no binding for nonlocal '{name}' found"),
+      })
+    }
+  }
+
+  fn resolve_free_load(&mut self, name: &str) -> Result<Instruction> {
+    Ok(Instruction::LoadFree(self.resolve_free_index(name)?))
+  }
+
+  fn resolve_free_store(&mut self, name: &str) -> Result<Instruction> {
+    Ok(Instruction::StoreFree(self.resolve_free_index(name)?))
+  }
+
   fn resolve_load(&mut self, name: &str) -> Result<Instruction> {
     match self.scope().symbols.resolve(name) {
       Symbol::Local => {
@@ -459,12 +508,17 @@ impl Compiler {
 
         Ok(Instruction::LoadFast(index))
       }
-      Symbol::Global | Symbol::Name => {
+      Symbol::Global => {
         Ok(Instruction::LoadName(self.code_mut().add_name(name)?))
       }
-      Symbol::Nonlocal => Err(Error::UnsupportedSyntax {
-        message: "nonlocal (not yet implemented)".into(),
-      }),
+      Symbol::Name => {
+        if self.scopes.has_enclosing_binding(name) {
+          Ok(Instruction::LoadFree(self.code_mut().add_freevar(name)?))
+        } else {
+          Ok(Instruction::LoadName(self.code_mut().add_name(name)?))
+        }
+      }
+      Symbol::Nonlocal => self.resolve_free_load(name),
     }
   }
 
@@ -480,9 +534,7 @@ impl Compiler {
           }
         })?,
       )),
-      Symbol::Nonlocal => Err(Error::UnsupportedSyntax {
-        message: "nonlocal (not yet implemented)".into(),
-      }),
+      Symbol::Nonlocal => self.resolve_free_store(name),
     }
   }
 
@@ -507,6 +559,7 @@ mod tests {
   #[derive(Debug, Default)]
   struct Test {
     constants: Vec<Object>,
+    freevars: Vec<&'static str>,
     instructions: Vec<Instruction>,
     locals: Vec<&'static str>,
     names: Vec<&'static str>,
@@ -517,6 +570,7 @@ mod tests {
     fn code(self) -> Code {
       Code {
         constants: self.constants,
+        freevars: self.freevars.into_iter().map(str::to_owned).collect(),
         instructions: self.instructions,
         locals: self.locals.into_iter().map(str::to_owned).collect(),
         names: self.names.into_iter().map(str::to_owned).collect(),
@@ -721,6 +775,7 @@ mod tests {
     })
     .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
     .constant(Object::Function {
+      closure: Vec::new(),
       name: "foo".to_owned(),
       parameters: vec!["bar".to_owned()],
       code: Test::default()
@@ -742,6 +797,7 @@ mod tests {
     })
     .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
     .constant(Object::Function {
+      closure: Vec::new(),
       name: "baz".to_owned(),
       parameters: vec!["foo".to_owned(), "bar".to_owned()],
       code: Test::default()
@@ -769,6 +825,7 @@ mod tests {
     })
     .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
     .constant(Object::Function {
+      closure: Vec::new(),
       name: "foo".to_owned(),
       parameters: Vec::new(),
       code: Test::default()
@@ -798,6 +855,7 @@ mod tests {
     })
     .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
     .constant(Object::Function {
+      closure: Vec::new(),
       name: "foo".to_owned(),
       parameters: Vec::new(),
       code: Test::default()
@@ -924,6 +982,7 @@ mod tests {
     })
     .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
     .constant(Object::Function {
+      closure: Vec::new(),
       name: "foo".to_owned(),
       parameters: Vec::new(),
       code: Test::default()
@@ -934,6 +993,7 @@ mod tests {
           Instruction::Return,
         ])
         .constant(Object::Function {
+          closure: Vec::new(),
           name: "bar".to_owned(),
           parameters: Vec::new(),
           code: Test::default()

@@ -2,8 +2,9 @@ use super::*;
 
 pub(crate) struct Frame {
   code: Rc<Code>,
+  freevars: Vec<Cell>,
   ip: usize,
-  locals: Vec<Option<Object>>,
+  locals: Vec<Cell>,
   stack: Vec<Object>,
 }
 
@@ -32,8 +33,49 @@ impl Frame {
     Ok(())
   }
 
+  pub(crate) fn capture_cell(&self, name: &str) -> Result<Cell> {
+    if let Some(index) = self.code.locals.iter().position(|local| local == name)
+    {
+      return self
+        .locals
+        .get(index)
+        .cloned()
+        .ok_or_else(|| Error::Internal {
+          message: "invalid local index".into(),
+        });
+    }
+
+    if let Some(index) = self
+      .code
+      .freevars
+      .iter()
+      .position(|freevar| freevar == name)
+    {
+      return self.freevars.get(index).cloned().ok_or_else(|| {
+        Error::Internal {
+          message: "invalid free variable index".into(),
+        }
+      });
+    }
+
+    Err(Error::Internal {
+      message: format!("missing closure variable: {name}"),
+    })
+  }
+
   pub(crate) fn finish(self) -> Object {
     self.stack.into_iter().last().unwrap_or(Object::None)
+  }
+
+  fn free_name(&self, index: usize) -> Result<String> {
+    self
+      .code
+      .freevars
+      .get(index)
+      .cloned()
+      .ok_or_else(|| Error::Internal {
+        message: "invalid free variable index".into(),
+      })
   }
 
   pub(crate) fn jump(&mut self, target: u16) -> Result {
@@ -61,6 +103,22 @@ impl Frame {
       })
   }
 
+  pub(crate) fn load_free(&self, index: u16) -> Result<Object> {
+    let index = usize::from(index);
+
+    let name = self.free_name(index)?;
+
+    self
+      .freevars
+      .get(index)
+      .ok_or_else(|| Error::Internal {
+        message: "invalid free variable index".into(),
+      })?
+      .borrow()
+      .clone()
+      .ok_or(Error::UnboundLocal { name })
+  }
+
   pub(crate) fn load_local(&self, index: u16) -> Result<Object> {
     let index = usize::from(index);
 
@@ -72,6 +130,7 @@ impl Frame {
       .ok_or_else(|| Error::Internal {
         message: "invalid local index".into(),
       })?
+      .borrow()
       .clone()
       .ok_or(Error::UnboundLocal { name })
   }
@@ -99,14 +158,7 @@ impl Frame {
   }
 
   pub(crate) fn new(code: Rc<Code>) -> Self {
-    let locals_len = code.locals.len();
-
-    Self {
-      code,
-      ip: 0,
-      locals: vec![None; locals_len],
-      stack: Vec::new(),
-    }
+    Self::with_closure(code, Vec::new())
   }
 
   pub(crate) fn next_instruction(&mut self) -> Option<Instruction> {
@@ -153,6 +205,18 @@ impl Frame {
     self.stack.push(object);
   }
 
+  pub(crate) fn store_free(&mut self, index: u16, object: Object) -> Result {
+    let index = usize::from(index);
+
+    let cell = self.freevars.get(index).ok_or_else(|| Error::Internal {
+      message: "invalid free variable index".into(),
+    })?;
+
+    *cell.borrow_mut() = Some(object);
+
+    Ok(())
+  }
+
   pub(crate) fn store_local(&mut self, index: u16, object: Object) -> Result {
     let index = usize::from(index);
 
@@ -162,7 +226,7 @@ impl Frame {
       });
     }
 
-    self.locals[index] = Some(object);
+    *self.locals[index].borrow_mut() = Some(object);
 
     Ok(())
   }
@@ -170,6 +234,7 @@ impl Frame {
   pub(crate) fn with_arguments(
     code: Rc<Code>,
     arguments: Vec<Object>,
+    freevars: Vec<Cell>,
   ) -> Result<Self> {
     if arguments.len() > code.locals.len() {
       return Err(Error::Internal {
@@ -177,12 +242,26 @@ impl Frame {
       });
     }
 
-    let mut frame = Self::new(code);
+    let frame = Self::with_closure(code, freevars);
 
     for (index, argument) in arguments.into_iter().enumerate() {
-      frame.locals[index] = Some(argument);
+      *frame.locals[index].borrow_mut() = Some(argument);
     }
 
     Ok(frame)
+  }
+
+  pub(crate) fn with_closure(code: Rc<Code>, freevars: Vec<Cell>) -> Self {
+    let locals_len = code.locals.len();
+
+    Self {
+      code,
+      freevars,
+      ip: 0,
+      locals: (0..locals_len)
+        .map(|_| Rc::new(RefCell::new(None)))
+        .collect(),
+      stack: Vec::new(),
+    }
   }
 }

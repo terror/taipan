@@ -6,6 +6,7 @@ pub enum Object {
   Builtin(Builtin),
   Float(f64),
   Function {
+    closure: Vec<Cell>,
     name: String,
     parameters: Vec<String>,
     code: Rc<Code>,
@@ -372,11 +373,13 @@ impl PartialEq for Object {
       (Self::Bool(a), Self::Bool(b)) => a == b,
       (
         Self::Function {
+          closure: _,
           name: a_name,
           parameters: a_params,
           code: a_code,
         },
         Self::Function {
+          closure: _,
           name: b_name,
           parameters: b_params,
           code: b_code,

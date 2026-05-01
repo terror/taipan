@@ -50,6 +50,7 @@ impl<W: Write> Machine<W> {
 
     match function {
       Object::Function {
+        closure,
         name: _,
         parameters: params,
         code,
@@ -63,7 +64,9 @@ impl<W: Write> Machine<W> {
           });
         }
 
-        self.frames.push(Frame::with_arguments(code, arguments)?);
+        self
+          .frames
+          .push(Frame::with_arguments(code, arguments, closure)?);
       }
       Object::Builtin(builtin) => {
         let result = builtin.call(&arguments, &mut self.output)?;
@@ -126,11 +129,11 @@ impl<W: Write> Machine<W> {
       Instruction::CompareNe => self.compare_ne()?,
       Instruction::Dup => self.dup()?,
       Instruction::Jump(target) => self.jump(target)?,
-      Instruction::LoadConst(index) | Instruction::MakeFunction(index) => {
-        self.load_const(index)?;
-      }
+      Instruction::LoadConst(index) => self.load_const(index)?,
       Instruction::LoadFast(index) => self.load_fast(index)?,
+      Instruction::LoadFree(index) => self.load_free(index)?,
       Instruction::LoadName(index) => self.load_name(index)?,
+      Instruction::MakeFunction(index) => self.make_function(index)?,
       Instruction::Pop => {
         self.frame_mut()?.pop()?;
       }
@@ -138,6 +141,7 @@ impl<W: Write> Machine<W> {
       Instruction::PopJumpIfTrue(target) => self.pop_jump_if_true(target)?,
       Instruction::Return => return self.finish_frame(),
       Instruction::StoreFast(index) => self.store_fast(index)?,
+      Instruction::StoreFree(index) => self.store_free(index)?,
       Instruction::StoreName(index) => self.store_name(index)?,
       Instruction::UnaryNeg => self.unary_neg()?,
       Instruction::UnaryNot => self.unary_not()?,
@@ -199,6 +203,12 @@ impl<W: Write> Machine<W> {
     Ok(())
   }
 
+  fn load_free(&mut self, index: u16) -> Result {
+    let value = self.frame()?.load_free(index)?;
+    self.frame_mut()?.push(value);
+    Ok(())
+  }
+
   fn load_name(&mut self, index: u16) -> Result {
     let name = self.frame()?.name(index)?;
 
@@ -209,6 +219,37 @@ impl<W: Write> Machine<W> {
       .clone();
 
     self.frame_mut()?.push(value);
+
+    Ok(())
+  }
+
+  fn make_function(&mut self, index: u16) -> Result {
+    let function = self.frame()?.load_const(index)?;
+
+    let Object::Function {
+      closure: _,
+      name,
+      parameters,
+      code,
+    } = function
+    else {
+      return Err(Error::Internal {
+        message: "invalid function constant".into(),
+      });
+    };
+
+    let closure = code
+      .freevars
+      .iter()
+      .map(|name| self.frame()?.capture_cell(name))
+      .collect::<Result<Vec<_>>>()?;
+
+    self.frame_mut()?.push(Object::Function {
+      closure,
+      name,
+      parameters,
+      code,
+    });
 
     Ok(())
   }
@@ -256,6 +297,11 @@ impl<W: Write> Machine<W> {
   fn store_fast(&mut self, index: u16) -> Result {
     let value = self.frame_mut()?.pop()?;
     self.frame_mut()?.store_local(index, value)
+  }
+
+  fn store_free(&mut self, index: u16) -> Result {
+    let value = self.frame_mut()?.pop()?;
+    self.frame_mut()?.store_free(index, value)
   }
 
   fn store_name(&mut self, index: u16) -> Result {

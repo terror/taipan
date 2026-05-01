@@ -10,12 +10,13 @@ use {
     Alias, BoolOp, CmpOp, ExceptHandler, Expr, ExprBoolOp, ExprCall,
     ExprCompare, ExprNumberLiteral, ModModule, Number, Operator, Parameters,
     Stmt, StmtAnnAssign, StmtAssign, StmtAugAssign, StmtFunctionDef, StmtIf,
-    StmtReturn, StmtWhile, UnaryOp,
+    StmtNonlocal, StmtReturn, StmtWhile, UnaryOp,
   },
   ruff_python_parser::ParseError,
   scope::{Scope, ScopeStack},
   snafu::Snafu,
   std::{
+    cell::RefCell,
     collections::{HashMap, HashSet},
     fmt::{self, Display, Formatter},
     io::{self, Stdout, Write},
@@ -44,6 +45,7 @@ mod stmt_ext;
 mod symbol_table;
 
 pub type Result<T = (), E = Error> = std::result::Result<T, E>;
+pub(crate) type Cell = Rc<RefCell<Option<Object>>>;
 
 pub use {
   builtin::Builtin, code::Code, compiler::Compiler, error::Error,

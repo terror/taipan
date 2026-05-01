@@ -321,6 +321,26 @@ fn control_flow() -> Result {
 }
 
 #[test]
+fn closure_capture() -> Result {
+  Test::new()?
+    .program(
+      "
+      def foo():
+        bar = 1
+
+        def baz():
+          return bar
+
+        return baz()
+
+      print(foo())
+      ",
+    )
+    .expected_stdout(Exact("1\n"))
+    .run()
+}
+
+#[test]
 fn display_values() -> Result {
   Test::new()?
     .program(
@@ -447,6 +467,68 @@ fn nested_function() -> Result {
       ",
     )
     .expected_stdout(Exact("11\n"))
+    .run()
+}
+
+#[test]
+fn nested_closure_capture() -> Result {
+  Test::new()?
+    .program(
+      "
+      def foo():
+        bar = 1
+
+        def baz():
+          def qux():
+            return bar
+
+          return qux()
+
+        return baz()
+
+      print(foo())
+      ",
+    )
+    .expected_stdout(Exact("1\n"))
+    .run()
+}
+
+#[test]
+fn nonlocal_assignment() -> Result {
+  Test::new()?
+    .program(
+      "
+      def foo():
+        bar = 1
+
+        def baz():
+          nonlocal bar
+          bar += 1
+
+        baz()
+        print(bar)
+
+      foo()
+      ",
+    )
+    .expected_stdout(Exact("2\n"))
+    .run()
+}
+
+#[test]
+fn nonlocal_missing_binding() -> Result {
+  Test::new()?
+    .program(
+      "
+      def foo():
+        def bar():
+          nonlocal baz
+      ",
+    )
+    .expected_status(1)
+    .expected_stderr(Contains(
+      "CompileError: no binding for nonlocal 'baz' found",
+    ))
     .run()
 }
 
