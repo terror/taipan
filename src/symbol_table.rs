@@ -41,6 +41,11 @@ impl SymbolTable {
         self.analyze_expr(lhs)?;
         self.analyze_expr(rhs)?;
       }
+      Expr::FormattedString(expressions) => {
+        for expr in expressions {
+          self.analyze_expr(expr)?;
+        }
+      }
       Expr::If { body, orelse, test } => {
         self.analyze_expr(test)?;
         self.analyze_expr(body)?;

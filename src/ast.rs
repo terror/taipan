@@ -47,6 +47,7 @@ pub(crate) enum Expr {
     rhs: Box<Expr>,
   },
   Float(f64),
+  FormattedString(Vec<Expr>),
   If {
     body: Box<Expr>,
     orelse: Box<Expr>,

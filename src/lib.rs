@@ -13,7 +13,10 @@ use {
   operator_ext::OperatorExt,
   pass::{CollectSymbols, EmitBytecode, Lower, Pass},
   pipeline::Pipeline,
-  ruff_python_ast::{BoolOp, CmpOp, ModModule, Number, Operator, UnaryOp},
+  ruff_python_ast::{
+    BoolOp, CmpOp, ConversionFlag, FStringPart, InterpolatedStringElement,
+    ModModule, Number, Operator, UnaryOp,
+  },
   ruff_python_parser::ParseError,
   scope::Scope,
   scope_kind::ScopeKind,

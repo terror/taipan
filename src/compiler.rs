@@ -185,6 +185,20 @@ impl Compiler {
         self.compile_compare(lhs, *operator, rhs)
       }
       Expr::Float(value) => self.emit_const(Object::Float(*value)),
+      Expr::FormattedString(expressions) => {
+        for expr in expressions {
+          self.compile_expr(expr)?;
+        }
+
+        let count =
+          u16::try_from(expressions.len()).map_err(|_| Error::Compile {
+            message: "too many f-string parts".into(),
+          })?;
+
+        self.code_mut().emit(Instruction::BuildString(count));
+
+        Ok(())
+      }
       Expr::If { body, orelse, test } => {
         let false_label = self.code_mut().label();
         let end = self.code_mut().label();
@@ -688,6 +702,31 @@ mod tests {
       Instruction::Pop,
     ])
     .names(&["foo", "bar", "baz"])
+    .run();
+  }
+
+  #[test]
+  fn f_string() {
+    Test::new(indoc! {
+      r#"
+      f"foo {bar} {1 + 2}"
+      "#
+    })
+    .instructions(&[
+      Instruction::LoadConst(0),
+      Instruction::LoadName(0),
+      Instruction::LoadConst(1),
+      Instruction::LoadConst(2),
+      Instruction::LoadConst(3),
+      Instruction::BinaryAdd,
+      Instruction::BuildString(4),
+      Instruction::Pop,
+    ])
+    .constant(Object::Str("foo ".to_owned()))
+    .constant(Object::Str(" ".to_owned()))
+    .constant(Object::Int(1))
+    .constant(Object::Int(2))
+    .names(&["bar"])
     .run();
   }
 

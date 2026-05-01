@@ -373,6 +373,23 @@ fn float_builtin() -> Result {
 }
 
 #[test]
+fn f_strings() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      foo = "foo"
+      bar = 42
+      print(f"{foo} {bar + 1}")
+      print(f"foo {bar} baz")
+      print(f"foo={foo!r}")
+      print(f"{bar=}")
+      "#,
+    )
+    .expected_stdout(Exact("foo 43\nfoo 42 baz\nfoo=foo\nbar=42\n"))
+    .run()
+}
+
+#[test]
 fn function_call() -> Result {
   Test::new()?
     .program(

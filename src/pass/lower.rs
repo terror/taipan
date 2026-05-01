@@ -89,6 +89,9 @@ impl Lower {
       ruff_python_ast::Expr::BooleanLiteral(node) => Ok(Expr::Bool(node.value)),
       ruff_python_ast::Expr::Call(node) => Self::call(node),
       ruff_python_ast::Expr::Compare(node) => Self::compare(node),
+      ruff_python_ast::Expr::FString(node) => {
+        Self::formatted_string(node.value.iter())
+      }
       ruff_python_ast::Expr::If(node) => Ok(Expr::If {
         body: Box::new(Self::expr(&node.body)?),
         orelse: Box::new(Self::expr(&node.orelse)?),
@@ -121,6 +124,66 @@ impl Lower {
         message: format!("expression: {}", expr.name()),
       }),
     }
+  }
+
+  fn formatted_string<'a>(
+    parts: impl IntoIterator<Item = &'a FStringPart>,
+  ) -> Result<Expr> {
+    let mut expressions = Vec::new();
+
+    for part in parts {
+      match part {
+        FStringPart::Literal(literal) => {
+          expressions.push(Expr::String(literal.value.to_string()));
+        }
+        FStringPart::FString(fstring) => {
+          for element in &fstring.elements {
+            match element {
+              InterpolatedStringElement::Literal(literal) => {
+                expressions.push(Expr::String(literal.value.to_string()));
+              }
+              InterpolatedStringElement::Interpolation(interpolation) => {
+                if interpolation.format_spec.is_some() {
+                  return Err(Error::UnsupportedSyntax {
+                    message: "f-string format spec".into(),
+                  });
+                }
+
+                match interpolation.conversion {
+                  ConversionFlag::None
+                  | ConversionFlag::Str
+                  | ConversionFlag::Repr => {
+                    let expr = Self::expr(&interpolation.expression)?;
+
+                    if let Some(debug_text) = &interpolation.debug_text {
+                      let Expr::Name(name) = &expr else {
+                        return Err(Error::UnsupportedSyntax {
+                          message: "complex f-string debug expression".into(),
+                        });
+                      };
+
+                      expressions.push(Expr::String(format!(
+                        "{}{}{}",
+                        debug_text.leading, name, debug_text.trailing
+                      )));
+                    }
+
+                    expressions.push(expr);
+                  }
+                  ConversionFlag::Ascii => {
+                    return Err(Error::UnsupportedSyntax {
+                      message: "f-string ascii conversion".into(),
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    Ok(Expr::FormattedString(expressions))
   }
 
   pub(crate) fn module(module: &ModModule) -> Result<Module> {
