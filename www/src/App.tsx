@@ -10,6 +10,7 @@ import { Bot } from 'lucide-react';
 import { useCallback } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
 
+import { AboutDialog } from './components/about-dialog';
 import { EditorPane } from './components/editor-pane';
 import { ResultPane } from './components/result-pane';
 import { useEditorExtensions } from './hooks/use-editor-extensions';
@@ -150,6 +151,8 @@ const App = () => {
             taipan
           </a>
         </div>
+
+        <AboutDialog />
       </div>
 
       <div className='min-h-0 flex-1 overflow-hidden p-4'>
