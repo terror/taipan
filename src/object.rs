@@ -6,7 +6,7 @@ pub enum Object {
   Builtin(Builtin),
   Float(f64),
   Function {
-    closure: Vec<Cell>,
+    closure: Vec<Rc<RefCell<Option<Object>>>>,
     code: Rc<Code>,
     name: String,
     parameters: Vec<String>,
@@ -388,6 +388,64 @@ impl PartialEq for Object {
       (Self::Str(a), Self::Str(b)) => a == b,
       (Self::None, Self::None) => true,
       _ => false,
+    }
+  }
+}
+
+impl Serialize for Object {
+  fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+  where
+    S: Serializer,
+  {
+    match self {
+      Self::Bool(value) => {
+        let mut state = serializer.serialize_struct("Object", 2)?;
+        state.serialize_field("type", "bool")?;
+        state.serialize_field("value", value)?;
+        state.end()
+      }
+      Self::Builtin(builtin) => {
+        let mut state = serializer.serialize_struct("Object", 2)?;
+        state.serialize_field("type", "builtin")?;
+        state.serialize_field("name", builtin.name())?;
+        state.end()
+      }
+      Self::Float(value) => {
+        let mut state = serializer.serialize_struct("Object", 2)?;
+        state.serialize_field("type", "float")?;
+        state.serialize_field("value", value)?;
+        state.end()
+      }
+      Self::Function {
+        closure: _,
+        code,
+        name,
+        parameters,
+      } => {
+        let mut state = serializer.serialize_struct("Object", 4)?;
+        state.serialize_field("type", "function")?;
+        state.serialize_field("name", name)?;
+        state.serialize_field("parameters", parameters)?;
+        state.serialize_field("bytecode", code.as_ref())?;
+        state.end()
+      }
+      Self::Int(value) => {
+        let mut state = serializer.serialize_struct("Object", 2)?;
+        state.serialize_field("type", "int")?;
+        state.serialize_field("value", value)?;
+        state.end()
+      }
+      Self::None => {
+        let mut state = serializer.serialize_struct("Object", 1)?;
+        state.serialize_field("type", "none")?;
+        state.end()
+      }
+      Self::Str(value) => {
+        let mut state = serializer.serialize_struct("Object", 2)?;
+        state.serialize_field("type", "string")?;
+        state.serialize_field("value", value)?;
+        state.end()
+      }
     }
   }
 }

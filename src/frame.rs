@@ -2,9 +2,9 @@ use super::*;
 
 pub(crate) struct Frame {
   code: Rc<Code>,
-  freevars: Vec<Cell>,
+  freevars: Vec<Rc<RefCell<Option<Object>>>>,
   ip: usize,
-  locals: Vec<Cell>,
+  locals: Vec<Rc<RefCell<Option<Object>>>>,
   stack: Vec<Object>,
 }
 
@@ -33,7 +33,10 @@ impl Frame {
     Ok(())
   }
 
-  pub(crate) fn capture_cell(&self, name: &str) -> Result<Cell> {
+  pub(crate) fn capture_cell(
+    &self,
+    name: &str,
+  ) -> Result<Rc<RefCell<Option<Object>>>> {
     if let Some(index) = self.code.locals.iter().position(|local| local == name)
     {
       return self
@@ -234,7 +237,7 @@ impl Frame {
   pub(crate) fn with_arguments(
     code: Rc<Code>,
     arguments: Vec<Object>,
-    freevars: Vec<Cell>,
+    freevars: Vec<Rc<RefCell<Option<Object>>>>,
   ) -> Result<Self> {
     if arguments.len() > code.locals.len() {
       return Err(Error::Internal {
@@ -251,7 +254,10 @@ impl Frame {
     Ok(frame)
   }
 
-  pub(crate) fn with_closure(code: Rc<Code>, freevars: Vec<Cell>) -> Self {
+  pub(crate) fn with_closure(
+    code: Rc<Code>,
+    freevars: Vec<Rc<RefCell<Option<Object>>>>,
+  ) -> Self {
     let locals_len = code.locals.len();
 
     Self {

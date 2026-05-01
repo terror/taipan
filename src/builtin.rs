@@ -16,7 +16,8 @@ impl Builtin {
     }
   }
 
-  pub(crate) fn name(&self) -> &'static str {
+  #[must_use]
+  pub fn name(&self) -> &'static str {
     match self {
       Self::Function(function) => function.name(),
     }

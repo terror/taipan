@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Code {
   pub constants: Vec<Object>,
   pub freevars: Vec<String>,

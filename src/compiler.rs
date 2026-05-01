@@ -387,6 +387,22 @@ impl Compiler {
     Ok(())
   }
 
+  /// Compiles Python source into bytecode.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if parsing fails or the module contains unsupported
+  /// syntax.
+  pub fn compile_source(source: &str) -> Result<Code> {
+    let module = parse(source, Mode::Module.into())?
+      .try_into_module()
+      .ok_or_else(|| Error::Internal {
+        message: "Mode::Module should produce ModModule".into(),
+      })?;
+
+    Self::compile(source, module.syntax())
+  }
+
   fn compile_stmt(&mut self, stmt: &Stmt) -> Result {
     match stmt {
       Stmt::AnnAssign { target, value } => {

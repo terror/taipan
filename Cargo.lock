@@ -1053,6 +1053,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1166,6 +1177,7 @@ dependencies = [
  "ruff_python_ast",
  "ruff_python_parser",
  "ruff_text_size",
+ "serde",
  "snafu",
  "tempfile",
  "unindent",
@@ -1181,6 +1193,12 @@ dependencies = [
 [[package]]
 name = "taipan-wasm"
 version = "0.0.0"
+dependencies = [
+ "serde-wasm-bindgen",
+ "serde_json",
+ "taipan",
+ "wasm-bindgen",
+]
 
 [[package]]
 name = "tempfile"

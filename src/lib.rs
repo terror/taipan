@@ -17,11 +17,12 @@ use {
     BoolOp, CmpOp, ConversionFlag, FStringPart, InterpolatedStringElement,
     ModModule, Number, Operator, UnaryOp,
   },
-  ruff_python_parser::ParseError,
+  ruff_python_parser::{Mode, ParseError, parse},
   ruff_text_size::Ranged,
   scope::Scope,
   scope_kind::ScopeKind,
   scope_stack::ScopeStack,
+  serde::{Serialize, Serializer, ser::SerializeStruct},
   snafu::Snafu,
   std::{
     cell::RefCell,
@@ -61,7 +62,6 @@ mod symbol;
 mod symbol_table;
 
 pub type Result<T = (), E = Error> = std::result::Result<T, E>;
-pub(crate) type Cell = Rc<RefCell<Option<Object>>>;
 
 pub use {
   builtin::Builtin, code::Code, compiler::Compiler, error::Error,
