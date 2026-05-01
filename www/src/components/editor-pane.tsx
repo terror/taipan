@@ -44,9 +44,14 @@ export const EditorPane = ({
       <div className='bg-panel flex h-11 items-center justify-between border-b px-3'>
         <Select
           value={example}
-          onValueChange={(name) =>
-            selectExample(examples, name, onChange, onExampleChange)
-          }
+          onValueChange={(name) => {
+            const example = examples.find((example) => example.name === name);
+
+            if (example) {
+              onExampleChange(example.name);
+              onChange(example.source);
+            }
+          }}
         >
           <SelectTrigger className='border-border/70 bg-background hover:bg-background focus-visible:border-border h-7 w-36 cursor-pointer rounded-md border px-2 py-0 text-xs shadow-xs transition-colors focus-visible:ring-0 focus-visible:ring-offset-0'>
             <SelectValue placeholder='Examples' />
@@ -105,17 +110,3 @@ export const EditorPane = ({
     </div>
   );
 };
-
-function selectExample(
-  examples: CodeExample[],
-  name: string,
-  onChange: (value: string) => void,
-  onExampleChange: (name: string) => void
-) {
-  const example = examples.find((example) => example.name === name);
-
-  if (example) {
-    onExampleChange(example.name);
-    onChange(example.source);
-  }
-}
