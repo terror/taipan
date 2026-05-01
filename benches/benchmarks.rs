@@ -1,10 +1,9 @@
 use {
   criterion::{BatchSize, Criterion, criterion_group, criterion_main},
   indoc::indoc,
-  ruff_python_ast::ModModule,
-  ruff_python_parser::{Mode, Parsed, parse},
+  ruff_python_parser::{Mode, parse},
   std::hint::black_box,
-  taipan::{Code, Compiler, Machine, Object},
+  taipan::{Compiler, Machine},
 };
 
 struct Workload {
@@ -92,30 +91,14 @@ const WORKLOADS: &[Workload] = &[
   },
 ];
 
-fn compile(source: &str) -> Code {
-  Compiler::compile(parse_module(source).syntax()).unwrap()
-}
-
-fn end_to_end(source: &str) -> (Object, Vec<u8>) {
-  run(compile(source))
-}
-
-fn parse_module(source: &str) -> Parsed<ModModule> {
-  parse(source, Mode::Module.into())
-    .unwrap()
-    .try_into_module()
-    .unwrap()
-}
-
-fn run(code: Code) -> (Object, Vec<u8>) {
-  Machine::with_output(code, Vec::new()).unwrap()
-}
-
 fn bench_compile(c: &mut Criterion) {
   let mut group = c.benchmark_group("compile");
 
   for workload in WORKLOADS {
-    let module = parse_module(workload.source);
+    let module = parse(workload.source, Mode::Module.into())
+      .unwrap()
+      .try_into_module()
+      .unwrap();
 
     group.bench_function(workload.name, |b| {
       b.iter(|| Compiler::compile(black_box(module.syntax())).unwrap());
@@ -130,7 +113,16 @@ fn bench_end_to_end(c: &mut Criterion) {
 
   for workload in WORKLOADS {
     group.bench_function(workload.name, |b| {
-      b.iter(|| black_box(end_to_end(black_box(workload.source))));
+      b.iter(|| {
+        let module = parse(black_box(workload.source), Mode::Module.into())
+          .unwrap()
+          .try_into_module()
+          .unwrap();
+
+        let code = Compiler::compile(module.syntax()).unwrap();
+
+        black_box(Machine::with_output(code, Vec::new()).unwrap());
+      });
     });
   }
 
@@ -141,10 +133,19 @@ fn bench_execute(c: &mut Criterion) {
   let mut group = c.benchmark_group("execute");
 
   for workload in WORKLOADS {
-    let code = compile(workload.source);
+    let module = parse(workload.source, Mode::Module.into())
+      .unwrap()
+      .try_into_module()
+      .unwrap();
+
+    let code = Compiler::compile(module.syntax()).unwrap();
 
     group.bench_function(workload.name, |b| {
-      b.iter_batched(|| code.clone(), run, BatchSize::SmallInput);
+      b.iter_batched(
+        || code.clone(),
+        |code| Machine::with_output(code, Vec::new()).unwrap(),
+        BatchSize::SmallInput,
+      );
     });
   }
 
@@ -156,7 +157,14 @@ fn bench_parse(c: &mut Criterion) {
 
   for workload in WORKLOADS {
     group.bench_function(workload.name, |b| {
-      b.iter(|| black_box(parse_module(black_box(workload.source))));
+      b.iter(|| {
+        black_box(
+          parse(black_box(workload.source), Mode::Module.into())
+            .unwrap()
+            .try_into_module()
+            .unwrap(),
+        );
+      });
     });
   }
 
@@ -170,4 +178,5 @@ criterion_group!(
   bench_execute,
   bench_end_to_end
 );
+
 criterion_main!(benches);
