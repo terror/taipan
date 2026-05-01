@@ -7,14 +7,6 @@ pub(crate) enum ScopeKind {
   Module,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Symbol {
-  Global,
-  Local,
-  Name,
-  Nonlocal,
-}
-
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct SymbolTable {
   bindings: HashSet<String>,
