@@ -4,11 +4,16 @@
 
 export type Instruction =
   | { opcode: 'binaryAdd'; argument?: undefined }
+  | { opcode: 'binaryBitAnd'; argument?: undefined }
+  | { opcode: 'binaryBitOr'; argument?: undefined }
+  | { opcode: 'binaryBitXor'; argument?: undefined }
   | { opcode: 'binaryDiv'; argument?: undefined }
   | { opcode: 'binaryFloorDiv'; argument?: undefined }
+  | { opcode: 'binaryLShift'; argument?: undefined }
   | { opcode: 'binaryMod'; argument?: undefined }
   | { opcode: 'binaryMul'; argument?: undefined }
   | { opcode: 'binaryPow'; argument?: undefined }
+  | { opcode: 'binaryRShift'; argument?: undefined }
   | { opcode: 'binarySub'; argument?: undefined }
   | { opcode: 'buildString'; argument: number }
   | { opcode: 'callFunction'; argument: number }
@@ -32,6 +37,7 @@ export type Instruction =
   | { opcode: 'storeFast'; argument: number }
   | { opcode: 'storeFree'; argument: number }
   | { opcode: 'storeName'; argument: number }
+  | { opcode: 'unaryInvert'; argument?: undefined }
   | { opcode: 'unaryNeg'; argument?: undefined }
   | { opcode: 'unaryNot'; argument?: undefined }
   | { opcode: 'unaryPos'; argument?: undefined };

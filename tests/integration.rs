@@ -179,6 +179,23 @@ fn arithmetic() -> Result {
 }
 
 #[test]
+fn bitwise() -> Result {
+  Test::new()?
+    .program(
+      "
+      print(6 & 3)
+      print(4 | 1)
+      print(7 ^ 3)
+      print(3 << 2)
+      print(-8 >> 2)
+      print(~2)
+      ",
+    )
+    .expected_stdout(Exact("2\n5\n4\n12\n-2\n-3\n"))
+    .run()
+}
+
+#[test]
 fn bool_builtin() -> Result {
   Test::new()?
     .program(

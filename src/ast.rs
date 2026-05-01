@@ -1,11 +1,16 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BinaryOperator {
   Add,
+  BitAnd,
+  BitOr,
+  BitXor,
   Div,
   FloorDiv,
+  LShift,
   Mod,
   Mul,
   Pow,
+  RShift,
   Sub,
 }
 
@@ -112,6 +117,7 @@ pub(crate) enum Stmt {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum UnaryOperator {
+  Invert,
   Not,
   UAdd,
   USub,

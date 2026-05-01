@@ -8,13 +8,18 @@ impl<'a> LowerAst<'a> {
   fn binary_operator(operator: Operator) -> Result<BinaryOperator> {
     match operator {
       Operator::Add => Ok(BinaryOperator::Add),
+      Operator::BitAnd => Ok(BinaryOperator::BitAnd),
+      Operator::BitOr => Ok(BinaryOperator::BitOr),
+      Operator::BitXor => Ok(BinaryOperator::BitXor),
       Operator::Div => Ok(BinaryOperator::Div),
       Operator::FloorDiv => Ok(BinaryOperator::FloorDiv),
+      Operator::LShift => Ok(BinaryOperator::LShift),
       Operator::Mod => Ok(BinaryOperator::Mod),
       Operator::Mult => Ok(BinaryOperator::Mul),
       Operator::Pow => Ok(BinaryOperator::Pow),
+      Operator::RShift => Ok(BinaryOperator::RShift),
       Operator::Sub => Ok(BinaryOperator::Sub),
-      _ => Err(Error::UnsupportedSyntax {
+      Operator::MatMult => Err(Error::UnsupportedSyntax {
         message: format!("operator: {}", operator.name()),
       }),
     }
@@ -139,11 +144,7 @@ impl<'a> LowerAst<'a> {
           UnaryOp::USub => UnaryOperator::USub,
           UnaryOp::UAdd => UnaryOperator::UAdd,
           UnaryOp::Not => UnaryOperator::Not,
-          UnaryOp::Invert => {
-            return Err(Error::UnsupportedSyntax {
-              message: "bitwise invert (~)".into(),
-            });
-          }
+          UnaryOp::Invert => UnaryOperator::Invert,
         };
 
         Ok(Expr::Unary {

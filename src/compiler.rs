@@ -229,6 +229,9 @@ impl Compiler {
         self.compile_expr(operand)?;
 
         match operator {
+          UnaryOperator::Invert => {
+            self.code_mut().emit(Instruction::UnaryInvert);
+          }
           UnaryOperator::USub => self.code_mut().emit(Instruction::UnaryNeg),
           UnaryOperator::UAdd => self.code_mut().emit(Instruction::UnaryPos),
           UnaryOperator::Not => self.code_mut().emit(Instruction::UnaryNot),

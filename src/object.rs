@@ -31,6 +31,27 @@ impl Object {
     }
   }
 
+  pub(crate) fn binary_bit_and(&self, rhs: &Self) -> Result<Self> {
+    match (self, rhs) {
+      (Self::Int(a), Self::Int(b)) => Ok(Self::Int(*a & *b)),
+      _ => Err(self.binary_type_error("&", rhs)),
+    }
+  }
+
+  pub(crate) fn binary_bit_or(&self, rhs: &Self) -> Result<Self> {
+    match (self, rhs) {
+      (Self::Int(a), Self::Int(b)) => Ok(Self::Int(*a | *b)),
+      _ => Err(self.binary_type_error("|", rhs)),
+    }
+  }
+
+  pub(crate) fn binary_bit_xor(&self, rhs: &Self) -> Result<Self> {
+    match (self, rhs) {
+      (Self::Int(a), Self::Int(b)) => Ok(Self::Int(*a ^ *b)),
+      _ => Err(self.binary_type_error("^", rhs)),
+    }
+  }
+
   pub(crate) fn binary_div(&self, rhs: &Self) -> Result<Self> {
     let (a, b) = match (self, rhs) {
       (Self::Int(a), Self::Int(b)) => (int_to_float(*a)?, int_to_float(*b)?),
@@ -88,6 +109,23 @@ impl Object {
         Ok(Self::Float((a / int_to_float(*b)?).floor()))
       }
       _ => Err(self.binary_type_error("//", rhs)),
+    }
+  }
+
+  pub(crate) fn binary_lshift(&self, rhs: &Self) -> Result<Self> {
+    match (self, rhs) {
+      (Self::Int(a), Self::Int(b)) => {
+        if *b < 0 {
+          return Err(Error::TypeError {
+            message: "negative shift count".into(),
+          });
+        }
+
+        a.checked_shl(u32::try_from(*b).map_err(|_| Error::Overflow)?)
+          .map(Self::Int)
+          .ok_or(Error::Overflow)
+      }
+      _ => Err(self.binary_type_error("<<", rhs)),
     }
   }
 
@@ -194,6 +232,27 @@ impl Object {
     }
   }
 
+  pub(crate) fn binary_rshift(&self, rhs: &Self) -> Result<Self> {
+    match (self, rhs) {
+      (Self::Int(a), Self::Int(b)) => {
+        if *b < 0 {
+          return Err(Error::TypeError {
+            message: "negative shift count".into(),
+          });
+        }
+
+        let count = u32::try_from(*b).map_err(|_| Error::Overflow)?;
+
+        Ok(Self::Int(if count >= i64::BITS {
+          if *a < 0 { -1 } else { 0 }
+        } else {
+          a >> count
+        }))
+      }
+      _ => Err(self.binary_type_error(">>", rhs)),
+    }
+  }
+
   pub(crate) fn binary_sub(&self, rhs: &Self) -> Result<Self> {
     match (self, rhs) {
       (Self::Int(a), Self::Int(b)) => {
@@ -288,6 +347,18 @@ impl Object {
       Self::Int(_) => "int",
       Self::None => "NoneType",
       Self::Str(_) => "str",
+    }
+  }
+
+  pub(crate) fn unary_invert(&self) -> Result<Self> {
+    match self {
+      Self::Int(a) => Ok(Self::Int(!*a)),
+      _ => Err(Error::TypeError {
+        message: format!(
+          "bad operand type for unary ~: '{}'",
+          self.type_name()
+        ),
+      }),
     }
   }
 
@@ -498,6 +569,34 @@ mod tests {
   }
 
   #[test]
+  fn binary_bitwise() {
+    assert_eq!(
+      Object::Int(6).binary_bit_and(&Object::Int(3)).unwrap(),
+      Object::Int(2)
+    );
+
+    assert_eq!(
+      Object::Int(4).binary_bit_or(&Object::Int(1)).unwrap(),
+      Object::Int(5)
+    );
+
+    assert_eq!(
+      Object::Int(7).binary_bit_xor(&Object::Int(3)).unwrap(),
+      Object::Int(4)
+    );
+
+    assert_eq!(
+      Object::Int(3).binary_lshift(&Object::Int(2)).unwrap(),
+      Object::Int(12)
+    );
+
+    assert_eq!(
+      Object::Int(-8).binary_rshift(&Object::Int(2)).unwrap(),
+      Object::Int(-2)
+    );
+  }
+
+  #[test]
   fn binary_floor_div() {
     assert_eq!(
       Object::Int(7).binary_floor_div(&Object::Int(2)).unwrap(),
@@ -616,5 +715,12 @@ mod tests {
     case(&Object::Float(0.1), true);
     case(&Object::Str(String::new()), false);
     case(&Object::Str("foo".into()), true);
+  }
+
+  #[test]
+  fn unary_invert() {
+    assert_eq!(Object::Int(2).unary_invert().unwrap(), Object::Int(-3));
+
+    assert!(Object::Str("foo".into()).unary_invert().is_err());
   }
 }
