@@ -5,7 +5,6 @@ let wasm: Promise<void> | undefined;
 
 export async function compileSource(source: string) {
   await initialize();
-
   return compile(source);
 }
 
@@ -13,8 +12,7 @@ export async function executeSource(source: string) {
   await initialize();
 
   const execution: Execution = execute(source);
-  const output = execution.output;
-  const result = execution.result;
+  const { output, result } = execution;
 
   execution.free();
 
@@ -23,6 +21,5 @@ export async function executeSource(source: string) {
 
 async function initialize() {
   wasm ??= init({ module_or_path: wasmUrl }).then(() => undefined);
-
   await wasm;
 }
