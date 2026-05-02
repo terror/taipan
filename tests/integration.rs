@@ -200,13 +200,14 @@ fn bool_builtin() -> Result {
   Test::new()?
     .program(
       r#"
+      print(bool())
       print(bool(0))
       print(bool(1))
       print(bool(""))
       print(bool("foo"))
       "#,
     )
-    .expected_stdout(Exact("False\nTrue\nFalse\nTrue\n"))
+    .expected_stdout(Exact("False\nFalse\nTrue\nFalse\nTrue\n"))
     .run()
 }
 
@@ -380,12 +381,28 @@ fn float_builtin() -> Result {
   Test::new()?
     .program(
       r#"
+      print(float())
       print(float(1))
       print(float("1.5"))
       print(float(True))
       "#,
     )
-    .expected_stdout(Exact("1.0\n1.5\n1.0\n"))
+    .expected_stdout(Exact("0.0\n1.0\n1.5\n1.0\n"))
+    .run()
+}
+
+#[test]
+fn int_builtin() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      print(int())
+      print(int(1.5))
+      print(int("2"))
+      print(int(True))
+      "#,
+    )
+    .expected_stdout(Exact("0\n1\n2\n1\n"))
     .run()
 }
 
@@ -592,6 +609,19 @@ fn repr_builtin() -> Result {
       "#,
     )
     .expected_stdout(Exact("foo\n1.5\n"))
+    .run()
+}
+
+#[test]
+fn str_builtin() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      print("foo" + str() + "bar")
+      print(str(1))
+      "#,
+    )
+    .expected_stdout(Exact("foobar\n1\n"))
     .run()
 }
 
