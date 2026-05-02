@@ -159,9 +159,13 @@ impl<W: Write> Machine<W> {
       Instruction::CompareEq => self.compare_eq()?,
       Instruction::CompareGe => self.binary_operation(Object::compare_ge)?,
       Instruction::CompareGt => self.binary_operation(Object::compare_gt)?,
+      Instruction::CompareIn => self.binary_operation(Object::compare_in)?,
       Instruction::CompareLe => self.binary_operation(Object::compare_le)?,
       Instruction::CompareLt => self.binary_operation(Object::compare_lt)?,
       Instruction::CompareNe => self.compare_ne()?,
+      Instruction::CompareNotIn => {
+        self.binary_operation(Object::compare_not_in)?;
+      }
       Instruction::Dup => self.dup()?,
       Instruction::ForIter(target) => self.for_iter(target)?,
       Instruction::GetIter => self.get_iter()?,

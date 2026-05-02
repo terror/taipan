@@ -23,9 +23,11 @@ export type Instruction =
   | { opcode: 'compareEq'; argument?: undefined }
   | { opcode: 'compareGe'; argument?: undefined }
   | { opcode: 'compareGt'; argument?: undefined }
+  | { opcode: 'compareIn'; argument?: undefined }
   | { opcode: 'compareLe'; argument?: undefined }
   | { opcode: 'compareLt'; argument?: undefined }
   | { opcode: 'compareNe'; argument?: undefined }
+  | { opcode: 'compareNotIn'; argument?: undefined }
   | { opcode: 'dup'; argument?: undefined }
   | { opcode: 'forIter'; argument: number }
   | { opcode: 'getIter'; argument?: undefined }

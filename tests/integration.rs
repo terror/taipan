@@ -285,9 +285,38 @@ fn comparisons() -> Result {
       print(1 != 2)
       print("foo" < "bar")
       print("foo" > "bar")
+      print(1 in [1, 2])
+      print(3 in [1, 2])
+      print("foo" in ("foo", "bar"))
+      print("oo" in "foo")
+      print("baz" not in "foo")
       "#,
     )
-    .expected_stdout(Exact("True\nFalse\nTrue\nTrue\nTrue\nFalse\nTrue\n"))
+    .expected_stdout(Exact(
+      "True\nFalse\nTrue\nTrue\nTrue\nFalse\nTrue\nTrue\nFalse\nTrue\nTrue\nTrue\n",
+    ))
+    .run()
+}
+
+#[test]
+fn membership_string_requires_string() -> Result {
+  Test::new()?
+    .program("print(1 in 'foo')")
+    .expected_status(1)
+    .expected_stderr(Contains(
+      "TypeError: 'in <string>' requires string as left operand, not int",
+    ))
+    .run()
+}
+
+#[test]
+fn membership_requires_iterable() -> Result {
+  Test::new()?
+    .program("print(1 in 2)")
+    .expected_status(1)
+    .expected_stderr(Contains(
+      "TypeError: argument of type 'int' is not iterable",
+    ))
     .run()
 }
 

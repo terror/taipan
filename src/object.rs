@@ -403,6 +403,28 @@ impl Object {
     self.compare_numeric(rhs, ">", |a, b| a > b)
   }
 
+  pub(crate) fn compare_in(&self, rhs: &Self) -> Result<Self> {
+    match rhs {
+      Self::List(list) => Ok(Self::Bool(list.borrow().contains(self))),
+      Self::Str(string) => match self {
+        Self::Str(needle) => Ok(Self::Bool(string.contains(needle))),
+        _ => Err(Error::TypeError {
+          message: format!(
+            "'in <string>' requires string as left operand, not {}",
+            self.type_name()
+          ),
+        }),
+      },
+      Self::Tuple(tuple) => Ok(Self::Bool(tuple.contains(self))),
+      _ => Err(Error::TypeError {
+        message: format!(
+          "argument of type '{}' is not iterable",
+          rhs.type_name()
+        ),
+      }),
+    }
+  }
+
   pub(crate) fn compare_le(&self, rhs: &Self) -> Result<Self> {
     self.compare_numeric(rhs, "<=", |a, b| a <= b)
   }
@@ -413,6 +435,16 @@ impl Object {
 
   pub(crate) fn compare_ne(&self, rhs: &Self) -> Self {
     Self::Bool(self != rhs)
+  }
+
+  pub(crate) fn compare_not_in(&self, rhs: &Self) -> Result<Self> {
+    let Self::Bool(result) = self.compare_in(rhs)? else {
+      return Err(Error::Internal {
+        message: "membership comparison returned non-bool".into(),
+      });
+    };
+
+    Ok(Self::Bool(!result))
   }
 
   fn compare_numeric(
