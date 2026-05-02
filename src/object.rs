@@ -4,7 +4,7 @@ use super::*;
 pub enum Object {
   Bool(bool),
   Builtin(Builtin),
-  Dict(ObjRef),
+  Dict(DictRef),
   Float(f64),
   Function {
     closure: Vec<Rc<RefCell<Option<Object>>>>,
@@ -14,12 +14,12 @@ pub enum Object {
     parameters: Vec<String>,
   },
   Int(i64),
-  Iterator(ObjRef),
-  List(ObjRef),
+  Iterator(IteratorRef),
+  List(ListRef),
   #[default]
   None,
   Str(String),
-  Tuple(ObjRef),
+  Tuple(TupleRef),
 }
 
 impl Object {
@@ -366,7 +366,7 @@ impl Object {
   }
 
   pub(crate) fn compare_eq(&self, rhs: &Self, heap: &Heap) -> Self {
-    Self::Bool(self.eq(rhs, heap))
+    Self::Bool(self.value_eq(rhs, heap))
   }
 
   pub(crate) fn compare_ge(&self, rhs: &Self) -> Result<Self> {
@@ -385,7 +385,10 @@ impl Object {
         Ok(Self::Bool(heap.dict_ref(*dict)?.contains_key(&key)))
       }
       Self::List(list) => Ok(Self::Bool(
-        heap.list_ref(*list)?.iter().any(|item| item.eq(self, heap)),
+        heap
+          .list_ref(*list)?
+          .iter()
+          .any(|item| item.value_eq(self, heap)),
       )),
       Self::Str(string) => match self {
         Self::Str(needle) => Ok(Self::Bool(string.contains(needle))),
@@ -400,7 +403,7 @@ impl Object {
         heap
           .tuple_ref(*tuple)?
           .iter()
-          .any(|item| item.eq(self, heap)),
+          .any(|item| item.value_eq(self, heap)),
       )),
       _ => Err(Error::TypeError {
         message: format!(
@@ -420,7 +423,7 @@ impl Object {
   }
 
   pub(crate) fn compare_ne(&self, rhs: &Self, heap: &Heap) -> Self {
-    Self::Bool(!self.eq(rhs, heap))
+    Self::Bool(!self.value_eq(rhs, heap))
   }
 
   pub(crate) fn compare_not_in(&self, rhs: &Self, heap: &Heap) -> Result<Self> {
@@ -474,78 +477,9 @@ impl Object {
     Ok(Self::Bool(cmp(a, b)))
   }
 
-  pub(crate) fn eq(&self, other: &Self, heap: &Heap) -> bool {
-    match (self, other) {
-      (Self::Int(a), Self::Int(b)) => a == b,
-      (Self::Float(a), Self::Float(b)) => a == b,
-      (Self::Int(a), Self::Float(b)) => a.to_f64().is_some_and(|a| a == *b),
-      (Self::Float(a), Self::Int(b)) => b.to_f64().is_some_and(|b| *a == b),
-      (Self::Bool(a), Self::Bool(b)) => a == b,
-      (Self::Dict(a), Self::Dict(b)) => {
-        if a == b {
-          return true;
-        }
-
-        let Ok(a) = heap.dict_ref(*a) else {
-          return false;
-        };
-
-        let Ok(b) = heap.dict_ref(*b) else {
-          return false;
-        };
-
-        a.len() == b.len()
-          && a.iter().all(|(key, (_, value))| {
-            b.get(key)
-              .is_some_and(|(_, other_value)| other_value.eq(value, heap))
-          })
-      }
-      (Self::Iterator(a), Self::Iterator(b)) => a == b,
-      (
-        Self::Function {
-          closure: _,
-          code: a_code,
-          defaults: a_defaults,
-          name: a_name,
-          parameters: a_params,
-        },
-        Self::Function {
-          closure: _,
-          code: b_code,
-          defaults: b_defaults,
-          name: b_name,
-          parameters: b_params,
-        },
-      ) => {
-        a_name == b_name
-          && a_params == b_params
-          && a_defaults == b_defaults
-          && a_code == b_code
-      }
-      (Self::List(a), Self::List(b)) => {
-        a == b
-          || heap
-            .list_ref(*a)
-            .ok()
-            .zip(heap.list_ref(*b).ok())
-            .is_some_and(|(a, b)| {
-              a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.eq(b, heap))
-            })
-      }
-      (Self::Str(a), Self::Str(b)) => a == b,
-      (Self::None, Self::None) => true,
-      (Self::Tuple(a), Self::Tuple(b)) => {
-        a == b
-          || heap
-            .tuple_ref(*a)
-            .ok()
-            .zip(heap.tuple_ref(*b).ok())
-            .is_some_and(|(a, b)| {
-              a.len() == b.len() && a.iter().zip(b).all(|(a, b)| a.eq(b, heap))
-            })
-      }
-      _ => false,
-    }
+  #[must_use]
+  pub fn display<'a>(&'a self, heap: &'a Heap) -> ObjectDisplay<'a> {
+    ObjectDisplay::new(self, heap)
   }
 
   pub(crate) fn get_item(&self, key: &Self, heap: &Heap) -> Result<Self> {
@@ -556,7 +490,7 @@ impl Object {
         heap
           .dict_ref(*dict)?
           .get(&dict_key)
-          .map(|(_, value)| value.clone())
+          .map(|entry| entry.value.clone())
           .ok_or_else(|| Error::Key {
             key: key.to_string(heap),
           })
@@ -634,7 +568,7 @@ impl Object {
       Self::Dict(dict) => heap
         .dict_ref(*dict)?
         .values()
-        .map(|(key, _)| key.clone())
+        .map(|entry| entry.key.clone())
         .collect::<Vec<_>>(),
       Self::List(list) => heap.list_ref(*list)?.to_vec(),
       Self::Str(string) => string
@@ -649,9 +583,7 @@ impl Object {
       }
     };
 
-    Ok(Self::Iterator(
-      heap.allocate(HeapObject::Iterator(Iterator::new(items))),
-    ))
+    Ok(heap.iterator(Iterator::new(items)))
   }
 
   pub(crate) fn next(&self, heap: &mut Heap) -> Result<Option<Self>> {
@@ -700,8 +632,11 @@ impl Object {
 
         dict
           .entry(dict_key)
-          .and_modify(|(_, existing)| *existing = value.clone())
-          .or_insert((key.clone(), value));
+          .and_modify(|entry| entry.value = value.clone())
+          .or_insert(DictObjectEntry {
+            key: key.clone(),
+            value,
+          });
 
         Ok(())
       }
@@ -732,70 +667,7 @@ impl Object {
   }
 
   pub(crate) fn to_string(&self, heap: &Heap) -> String {
-    match self {
-      Self::Bool(true) => "True".into(),
-      Self::Bool(false) => "False".into(),
-      Self::Builtin(builtin) => {
-        format!("<built-in function {}>", builtin.name())
-      }
-      Self::Dict(dict) => {
-        let Ok(dict) = heap.dict_ref(*dict) else {
-          return "<dict>".into();
-        };
-
-        let entries = dict
-          .values()
-          .map(|(key, value)| {
-            format!("{}: {}", key.to_string(heap), value.to_string(heap))
-          })
-          .collect::<Vec<_>>()
-          .join(", ");
-
-        format!("{{{entries}}}")
-      }
-      Self::Float(float) => {
-        if float.fract() == 0.0 && float.is_finite() {
-          format!("{float:.1}")
-        } else {
-          float.to_string()
-        }
-      }
-      Self::Function { name, .. } => format!("<function {name}>"),
-      Self::Int(int) => int.to_string(),
-      Self::Iterator(_) => "<iterator>".into(),
-      Self::List(list) => {
-        let Ok(list) = heap.list_ref(*list) else {
-          return "<list>".into();
-        };
-
-        let elements = list
-          .iter()
-          .map(|object| object.to_string(heap))
-          .collect::<Vec<_>>()
-          .join(", ");
-
-        format!("[{elements}]")
-      }
-      Self::None => "None".into(),
-      Self::Str(string) => string.clone(),
-      Self::Tuple(tuple) => {
-        let Ok(tuple) = heap.tuple_ref(*tuple) else {
-          return "<tuple>".into();
-        };
-
-        let elements = tuple
-          .iter()
-          .map(|object| object.to_string(heap))
-          .collect::<Vec<_>>()
-          .join(", ");
-
-        if tuple.len() == 1 {
-          format!("({elements},)")
-        } else {
-          format!("({elements})")
-        }
-      }
-    }
+    self.display(heap).to_string()
   }
 
   pub(crate) fn type_name(&self) -> &'static str {
@@ -865,7 +737,7 @@ impl Object {
       Self::Dict(dict) => heap
         .dict_ref(*dict)?
         .values()
-        .map(|(key, _)| key.clone())
+        .map(|entry| entry.key.clone())
         .collect::<Vec<_>>(),
       Self::List(list) => heap.list_ref(*list)?.to_vec(),
       Self::Str(string) => string
@@ -897,6 +769,82 @@ impl Object {
           elements.len()
         ),
       }),
+    }
+  }
+
+  pub(crate) fn value_eq(&self, other: &Self, heap: &Heap) -> bool {
+    match (self, other) {
+      (Self::Int(a), Self::Int(b)) => a == b,
+      (Self::Float(a), Self::Float(b)) => a == b,
+      (Self::Int(a), Self::Float(b)) => a.to_f64().is_some_and(|a| a == *b),
+      (Self::Float(a), Self::Int(b)) => b.to_f64().is_some_and(|b| *a == b),
+      (Self::Bool(a), Self::Bool(b)) => a == b,
+      (Self::Dict(a), Self::Dict(b)) => {
+        if a == b {
+          return true;
+        }
+
+        let Ok(a) = heap.dict_ref(*a) else {
+          return false;
+        };
+
+        let Ok(b) = heap.dict_ref(*b) else {
+          return false;
+        };
+
+        a.len() == b.len()
+          && a.iter().all(|(key, entry)| {
+            b.get(key)
+              .is_some_and(|other| other.value.value_eq(&entry.value, heap))
+          })
+      }
+      (Self::Iterator(a), Self::Iterator(b)) => a == b,
+      (
+        Self::Function {
+          closure: _,
+          code: a_code,
+          defaults: a_defaults,
+          name: a_name,
+          parameters: a_params,
+        },
+        Self::Function {
+          closure: _,
+          code: b_code,
+          defaults: b_defaults,
+          name: b_name,
+          parameters: b_params,
+        },
+      ) => {
+        a_name == b_name
+          && a_params == b_params
+          && a_defaults == b_defaults
+          && a_code == b_code
+      }
+      (Self::List(a), Self::List(b)) => {
+        a == b
+          || heap
+            .list_ref(*a)
+            .ok()
+            .zip(heap.list_ref(*b).ok())
+            .is_some_and(|(a, b)| {
+              a.len() == b.len()
+                && a.iter().zip(b).all(|(a, b)| a.value_eq(b, heap))
+            })
+      }
+      (Self::Str(a), Self::Str(b)) => a == b,
+      (Self::None, Self::None) => true,
+      (Self::Tuple(a), Self::Tuple(b)) => {
+        a == b
+          || heap
+            .tuple_ref(*a)
+            .ok()
+            .zip(heap.tuple_ref(*b).ok())
+            .is_some_and(|(a, b)| {
+              a.len() == b.len()
+                && a.iter().zip(b).all(|(a, b)| a.value_eq(b, heap))
+            })
+      }
+      _ => false,
     }
   }
 }
@@ -936,10 +884,10 @@ impl PartialEq for Object {
       (Self::Int(a), Self::Float(b)) => a.to_f64().is_some_and(|a| a == *b),
       (Self::Float(a), Self::Int(b)) => b.to_f64().is_some_and(|b| *a == b),
       (Self::Bool(a), Self::Bool(b)) => a == b,
-      (Self::Dict(a), Self::Dict(b))
-      | (Self::Iterator(a), Self::Iterator(b))
-      | (Self::List(a), Self::List(b))
-      | (Self::Tuple(a), Self::Tuple(b)) => a == b,
+      (Self::Dict(a), Self::Dict(b)) => a == b,
+      (Self::Iterator(a), Self::Iterator(b)) => a == b,
+      (Self::List(a), Self::List(b)) => a == b,
+      (Self::Tuple(a), Self::Tuple(b)) => a == b,
       (
         Self::Function {
           closure: _,

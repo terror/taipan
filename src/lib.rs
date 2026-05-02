@@ -9,7 +9,7 @@ use {
   context::Context,
   control_flow::ControlFlow,
   dict_key::DictKey,
-  dict_object::DictObject,
+  dict_object::{DictObject, DictObjectEntry},
   expr_ext::ExprExt,
   frame::Frame,
   heap_object::HeapObject,
@@ -67,6 +67,7 @@ mod machine;
 mod number_key;
 mod obj_ref;
 mod object;
+mod object_display;
 mod operator_ext;
 mod pass;
 mod pipeline;
@@ -80,7 +81,15 @@ mod symbol_table;
 pub type Result<T = (), E = Error> = std::result::Result<T, E>;
 
 pub use {
-  builtin::Builtin, code::Code, compiler::Compiler, error::Error, heap::Heap,
-  instruction::Instruction, iterator::Iterator, machine::Machine,
-  obj_ref::ObjRef, object::Object,
+  builtin::Builtin,
+  code::Code,
+  compiler::Compiler,
+  error::Error,
+  heap::Heap,
+  instruction::Instruction,
+  iterator::Iterator,
+  machine::Machine,
+  obj_ref::{DictRef, IteratorRef, ListRef, TupleRef},
+  object::Object,
+  object_display::ObjectDisplay,
 };

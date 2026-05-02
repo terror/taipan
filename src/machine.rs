@@ -14,6 +14,17 @@ impl Machine<Stdout> {
   ///
   /// Returns an error if execution fails.
   pub fn run(code: Code) -> Result<Object> {
+    let (result, _heap) = Self::run_with_heap(code)?;
+
+    Ok(result)
+  }
+
+  /// Runs `code` with standard output and returns the heap used by execution.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if execution fails.
+  pub fn run_with_heap(code: Code) -> Result<(Object, Heap)> {
     let mut machine = Machine {
       frames: Vec::new(),
       globals: HashMap::new(),
@@ -23,7 +34,9 @@ impl Machine<Stdout> {
 
     machine.initialize();
 
-    machine.execute(code)
+    let result = machine.execute(code)?;
+
+    Ok((result, machine.heap))
   }
 }
 
@@ -618,6 +631,20 @@ impl<W: Write> Machine<W> {
   ///
   /// Returns an error if execution fails or writing to `output` fails.
   pub fn with_output(code: Code, output: W) -> Result<(Object, W)> {
+    let (result, _heap, output) = Self::with_output_and_heap(code, output)?;
+
+    Ok((result, output))
+  }
+
+  /// Runs `code` with `output` and returns the heap used by execution.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if execution fails or writing to `output` fails.
+  pub fn with_output_and_heap(
+    code: Code,
+    output: W,
+  ) -> Result<(Object, Heap, W)> {
     let mut machine = Machine {
       frames: Vec::new(),
       globals: HashMap::new(),
@@ -629,7 +656,7 @@ impl<W: Write> Machine<W> {
 
     let result = machine.execute(code)?;
 
-    Ok((result, machine.output))
+    Ok((result, machine.heap, machine.output))
   }
 }
 
@@ -688,5 +715,26 @@ mod tests {
       },
       "invalid jump target",
     );
+  }
+
+  #[test]
+  fn with_output_and_heap_returns_displayable_heap_object() {
+    let (result, heap, output) = Machine::with_output_and_heap(
+      Code {
+        constants: vec![Object::Int(1), Object::Int(2)],
+        instructions: vec![
+          Instruction::LoadConst(0),
+          Instruction::LoadConst(1),
+          Instruction::BuildList(2),
+          Instruction::Return,
+        ],
+        ..Default::default()
+      },
+      Vec::new(),
+    )
+    .unwrap();
+
+    assert_eq!(output, Vec::new());
+    assert_eq!(result.display(&heap).to_string(), "[1, 2]");
   }
 }

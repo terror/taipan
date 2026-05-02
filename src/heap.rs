@@ -6,8 +6,8 @@ pub struct Heap {
 }
 
 impl Heap {
-  pub(crate) fn allocate(&mut self, object: HeapObject) -> ObjRef {
-    let reference = ObjRef(self.objects.len());
+  fn allocate(&mut self, object: HeapObject) -> usize {
+    let reference = self.objects.len();
 
     self.objects.push(object);
 
@@ -16,7 +16,7 @@ impl Heap {
 
   pub(crate) fn dict_mut(
     &mut self,
-    reference: ObjRef,
+    reference: DictRef,
   ) -> Result<&mut DictObject> {
     match self.objects.get_mut(reference.0) {
       Some(HeapObject::Dict(dict)) => Ok(dict),
@@ -37,14 +37,16 @@ impl Heap {
 
       result
         .entry(dict_key)
-        .and_modify(|(_, existing)| *existing = value.clone())
-        .or_insert((key, value));
+        .and_modify(|entry| entry.value = value.clone())
+        .or_insert(DictObjectEntry { key, value });
     }
 
-    Ok(Object::Dict(self.allocate(HeapObject::Dict(result))))
+    Ok(Object::Dict(DictRef(
+      self.allocate(HeapObject::Dict(result)),
+    )))
   }
 
-  pub(crate) fn dict_ref(&self, reference: ObjRef) -> Result<&DictObject> {
+  pub(crate) fn dict_ref(&self, reference: DictRef) -> Result<&DictObject> {
     match self.objects.get(reference.0) {
       Some(HeapObject::Dict(dict)) => Ok(dict),
       _ => Err(Error::Internal {
@@ -53,9 +55,13 @@ impl Heap {
     }
   }
 
+  pub(crate) fn iterator(&mut self, iterator: Iterator) -> Object {
+    Object::Iterator(IteratorRef(self.allocate(HeapObject::Iterator(iterator))))
+  }
+
   pub(crate) fn iterator_mut(
     &mut self,
-    reference: ObjRef,
+    reference: IteratorRef,
   ) -> Result<&mut Iterator> {
     match self.objects.get_mut(reference.0) {
       Some(HeapObject::Iterator(iterator)) => Ok(iterator),
@@ -66,12 +72,12 @@ impl Heap {
   }
 
   pub(crate) fn list(&mut self, elements: Vec<Object>) -> Object {
-    Object::List(self.allocate(HeapObject::List(elements)))
+    Object::List(ListRef(self.allocate(HeapObject::List(elements))))
   }
 
   pub(crate) fn list_mut(
     &mut self,
-    reference: ObjRef,
+    reference: ListRef,
   ) -> Result<&mut Vec<Object>> {
     match self.objects.get_mut(reference.0) {
       Some(HeapObject::List(list)) => Ok(list),
@@ -81,7 +87,7 @@ impl Heap {
     }
   }
 
-  pub(crate) fn list_ref(&self, reference: ObjRef) -> Result<&[Object]> {
+  pub(crate) fn list_ref(&self, reference: ListRef) -> Result<&[Object]> {
     match self.objects.get(reference.0) {
       Some(HeapObject::List(list)) => Ok(list),
       _ => Err(Error::Internal {
@@ -91,10 +97,10 @@ impl Heap {
   }
 
   pub(crate) fn tuple(&mut self, elements: Vec<Object>) -> Object {
-    Object::Tuple(self.allocate(HeapObject::Tuple(elements)))
+    Object::Tuple(TupleRef(self.allocate(HeapObject::Tuple(elements))))
   }
 
-  pub(crate) fn tuple_ref(&self, reference: ObjRef) -> Result<&[Object]> {
+  pub(crate) fn tuple_ref(&self, reference: TupleRef) -> Result<&[Object]> {
     match self.objects.get(reference.0) {
       Some(HeapObject::Tuple(tuple)) => Ok(tuple),
       _ => Err(Error::Internal {

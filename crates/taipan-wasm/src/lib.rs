@@ -49,7 +49,7 @@ pub fn execute(source: &str) -> Result<Execution, JsValue> {
   let code = Compiler::compile_source(source)
     .map_err(|error| JsValue::from_str(&error.to_string()))?;
 
-  let (result, output) = Machine::with_output(code, Vec::new())
+  let (result, heap, output) = Machine::with_output_and_heap(code, Vec::new())
     .map_err(|error| JsValue::from_str(&error.to_string()))?;
 
   let output = String::from_utf8(output)
@@ -57,7 +57,7 @@ pub fn execute(source: &str) -> Result<Execution, JsValue> {
 
   Ok(Execution {
     output,
-    result: result.to_string(),
+    result: result.display(&heap).to_string(),
   })
 }
 
