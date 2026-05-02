@@ -18,7 +18,27 @@ export function formatBytecode(code: Code): string {
   return code.instructions
     .map(
       (instruction) =>
-        `${instruction.opcode}${instruction.argument === undefined ? '' : ` ${instruction.argument}`}`
+        `${instruction.opcode}${instruction.argument === undefined ? '' : ` ${formatInstructionArgument(instruction.argument)}`}`
     )
     .join('\n');
+}
+
+/**
+ * Formats an instruction argument for the bytecode listing.
+ *
+ * Scalar arguments are displayed directly. Object arguments, which are used by
+ * instructions with named fields, are displayed as `key=value` pairs so the
+ * listing remains readable.
+ *
+ * @param argument Instruction argument from serialized bytecode.
+ * @returns A compact string representation for display.
+ */
+function formatInstructionArgument(argument: unknown): string {
+  if (typeof argument === 'object' && argument !== null) {
+    return Object.entries(argument)
+      .map(([key, value]) => `${key}=${value}`)
+      .join(' ');
+  }
+
+  return String(argument);
 }

@@ -30,11 +30,16 @@ impl SymbolTable {
       Expr::Call {
         arguments,
         function,
+        keywords,
       } => {
         self.analyze_expr(function)?;
 
         for argument in arguments {
           self.analyze_expr(argument)?;
+        }
+
+        for keyword in keywords {
+          self.analyze_expr(&keyword.value)?;
         }
       }
       Expr::Binary { lhs, rhs, .. } | Expr::Compare { lhs, rhs, .. } => {

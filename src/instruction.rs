@@ -21,6 +21,11 @@ pub enum Instruction {
   BuildString(u16),
   BuildTuple(u16),
   CallFunction(u8),
+  #[serde(rename_all = "camelCase")]
+  CallFunctionKeywords {
+    keyword_names: u16,
+    positional_count: u8,
+  },
   CompareEq,
   CompareGe,
   CompareGt,
@@ -37,7 +42,11 @@ pub enum Instruction {
   LoadFast(u16),
   LoadFree(u16),
   LoadName(u16),
-  MakeFunction(u16, u8),
+  #[serde(rename_all = "camelCase")]
+  MakeFunction {
+    default_count: u8,
+    function: u16,
+  },
   Pop,
   PopJumpIfFalse(u16),
   PopJumpIfTrue(u16),

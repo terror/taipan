@@ -37,21 +37,96 @@ impl<W: Write> Machine<W> {
     Ok(())
   }
 
-  fn build_list(&mut self, count: u16) -> Result {
-    self.frame_mut()?.build_list(count)
+  fn bind_arguments(
+    parameters: &[String],
+    defaults: &[Object],
+    arguments: Vec<Object>,
+    keywords: Vec<(String, Object)>,
+  ) -> Result<Vec<Object>> {
+    let argument_count = arguments.len() + keywords.len();
+
+    let required =
+      parameters
+        .len()
+        .checked_sub(defaults.len())
+        .ok_or_else(|| Error::Internal {
+          message: "invalid default argument count".into(),
+        })?;
+
+    if arguments.len() > parameters.len() {
+      return Err(Error::TypeError {
+        message: format!(
+          "expected from {required} to {} arguments, got {argument_count}",
+          parameters.len(),
+        ),
+      });
+    }
+
+    let mut bound = vec![None; parameters.len()];
+
+    for (index, argument) in arguments.into_iter().enumerate() {
+      bound[index] = Some(argument);
+    }
+
+    for (name, value) in keywords {
+      let index = parameters
+        .iter()
+        .position(|parameter| parameter == &name)
+        .ok_or_else(|| Error::TypeError {
+          message: format!("got unexpected keyword argument '{name}'"),
+        })?;
+
+      if bound[index].is_some() {
+        return Err(Error::TypeError {
+          message: format!("got multiple values for argument '{name}'"),
+        });
+      }
+
+      bound[index] = Some(value);
+    }
+
+    for index in 0..parameters.len() {
+      if bound[index].is_none() {
+        if index < required {
+          return Err(Error::TypeError {
+            message: format!(
+              "missing required argument '{}'",
+              parameters[index]
+            ),
+          });
+        }
+
+        bound[index] = Some(defaults[index - required].clone());
+      }
+    }
+
+    Ok(bound.into_iter().flatten().collect())
   }
 
-  fn build_string(&mut self, count: u16) -> Result {
-    self.frame_mut()?.build_string(count)
+  fn call_function_keywords(
+    &mut self,
+    positional_count: u8,
+    keyword_names: u16,
+  ) -> Result {
+    let names = self.frame()?.keyword_names(keyword_names)?;
+
+    let keyword_count =
+      u8::try_from(names.len()).map_err(|_| Error::Internal {
+        message: "invalid keyword argument count".into(),
+      })?;
+
+    let values = self.frame_mut()?.pop_arguments(keyword_count)?;
+
+    let keywords = names.into_iter().zip(values).collect();
+
+    self.call_function_with_keywords(positional_count, keywords)
   }
 
-  fn build_tuple(&mut self, count: u16) -> Result {
-    self.frame_mut()?.build_tuple(count)
-  }
-
-  fn call_function(&mut self, count: u8) -> Result {
-    let argument_count = usize::from(count);
-
+  fn call_function_with_keywords(
+    &mut self,
+    count: u8,
+    keywords: Vec<(String, Object)>,
+  ) -> Result {
     let arguments = self.frame_mut()?.pop_arguments(count)?;
 
     let function = self.frame_mut()?.pop()?;
@@ -64,28 +139,8 @@ impl<W: Write> Machine<W> {
         parameters: params,
         code,
       } => {
-        let required =
-          params.len().checked_sub(defaults.len()).ok_or_else(|| {
-            Error::Internal {
-              message: "invalid default argument count".into(),
-            }
-          })?;
-
-        if argument_count < required || argument_count > params.len() {
-          return Err(Error::TypeError {
-            message: format!(
-              "expected from {required} to {} arguments, got {argument_count}",
-              params.len(),
-            ),
-          });
-        }
-
-        let missing = params.len() - argument_count;
-
-        let arguments = arguments
-          .into_iter()
-          .chain(defaults[defaults.len() - missing..].iter().cloned())
-          .collect::<Vec<_>>();
+        let arguments =
+          Self::bind_arguments(&params, &defaults, arguments, keywords)?;
 
         self.frames.push(
           Frame::builder()
@@ -96,7 +151,14 @@ impl<W: Write> Machine<W> {
         );
       }
       Object::Builtin(builtin) => {
+        if !keywords.is_empty() {
+          return Err(Error::TypeError {
+            message: "keyword arguments are not supported for builtins".into(),
+          });
+        }
+
         let result = builtin.call(&arguments, &mut self.output)?;
+
         self.frame_mut()?.push(result);
       }
       _ => {
@@ -167,10 +229,20 @@ impl<W: Write> Machine<W> {
       Instruction::BinarySubscript => {
         self.binary_operation(Object::binary_subscript)?;
       }
-      Instruction::BuildList(count) => self.build_list(count)?,
-      Instruction::BuildString(count) => self.build_string(count)?,
-      Instruction::BuildTuple(count) => self.build_tuple(count)?,
-      Instruction::CallFunction(argc) => self.call_function(argc)?,
+      Instruction::BuildList(count) => self.frame_mut()?.build_list(count)?,
+      Instruction::BuildString(count) => {
+        self.frame_mut()?.build_string(count)?;
+      }
+      Instruction::BuildTuple(count) => self.frame_mut()?.build_tuple(count)?,
+      Instruction::CallFunction(argc) => {
+        self.call_function_with_keywords(argc, Vec::new())?;
+      }
+      Instruction::CallFunctionKeywords {
+        keyword_names,
+        positional_count,
+      } => {
+        self.call_function_keywords(positional_count, keyword_names)?;
+      }
       Instruction::CompareEq => self.compare_eq()?,
       Instruction::CompareGe => self.binary_operation(Object::compare_ge)?,
       Instruction::CompareGt => self.binary_operation(Object::compare_gt)?,
@@ -189,8 +261,11 @@ impl<W: Write> Machine<W> {
       Instruction::LoadFast(index) => self.load_fast(index)?,
       Instruction::LoadFree(index) => self.load_free(index)?,
       Instruction::LoadName(index) => self.load_name(index)?,
-      Instruction::MakeFunction(index, default_count) => {
-        self.make_function(index, default_count)?;
+      Instruction::MakeFunction {
+        default_count,
+        function,
+      } => {
+        self.make_function(function, default_count)?;
       }
       Instruction::Pop => {
         self.frame_mut()?.pop()?;
@@ -307,6 +382,7 @@ impl<W: Write> Machine<W> {
 
   fn make_function(&mut self, index: u16, default_count: u8) -> Result {
     let defaults = self.frame_mut()?.pop_arguments(default_count)?;
+
     let function = self.frame()?.load_const(index)?;
 
     let Object::Function {
