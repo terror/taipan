@@ -436,6 +436,7 @@ impl Object {
     match self {
       Self::List(list) => {
         let mut list = list.borrow_mut();
+
         let index = index_for_len(index, list.len())?;
 
         let Some(element) = list.get_mut(index) else {

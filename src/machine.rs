@@ -348,7 +348,9 @@ impl<W: Write> Machine<W> {
 
   fn store_subscript(&mut self) -> Result {
     let index = self.frame_mut()?.pop()?;
+
     let target = self.frame_mut()?.pop()?;
+
     let value = self.frame_mut()?.pop()?;
 
     target.store_subscript(&index, value)
