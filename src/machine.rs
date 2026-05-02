@@ -37,6 +37,10 @@ impl<W: Write> Machine<W> {
     Ok(())
   }
 
+  fn build_list(&mut self, count: u16) -> Result {
+    self.frame_mut()?.build_list(count)
+  }
+
   fn build_string(&mut self, count: u16) -> Result {
     self.frame_mut()?.build_string(count)
   }
@@ -141,6 +145,10 @@ impl<W: Write> Machine<W> {
         self.binary_operation(Object::binary_rshift)?;
       }
       Instruction::BinarySub => self.binary_operation(Object::binary_sub)?,
+      Instruction::BinarySubscript => {
+        self.binary_operation(Object::binary_subscript)?;
+      }
+      Instruction::BuildList(count) => self.build_list(count)?,
       Instruction::BuildString(count) => self.build_string(count)?,
       Instruction::CallFunction(argc) => self.call_function(argc)?,
       Instruction::CompareEq => self.compare_eq()?,
@@ -165,6 +173,7 @@ impl<W: Write> Machine<W> {
       Instruction::StoreFast(index) => self.store_fast(index)?,
       Instruction::StoreFree(index) => self.store_free(index)?,
       Instruction::StoreName(index) => self.store_name(index)?,
+      Instruction::StoreSubscript => self.store_subscript()?,
       Instruction::UnaryInvert => self.unary_invert()?,
       Instruction::UnaryNeg => self.unary_neg()?,
       Instruction::UnaryNot => self.unary_not()?,
@@ -335,6 +344,16 @@ impl<W: Write> Machine<W> {
     self.globals.insert(name, value);
 
     Ok(())
+  }
+
+  fn store_subscript(&mut self) -> Result {
+    let index = self.frame_mut()?.pop()?;
+
+    let target = self.frame_mut()?.pop()?;
+
+    let value = self.frame_mut()?.pop()?;
+
+    target.store_subscript(&index, value)
   }
 
   fn unary_invert(&mut self) -> Result {

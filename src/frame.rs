@@ -21,24 +21,20 @@ pub(crate) struct Frame {
 }
 
 impl Frame {
+  pub(crate) fn build_list(&mut self, count: u16) -> Result {
+    let elements = self.pop_elements(usize::from(count))?;
+
+    self.push(Object::list(elements));
+
+    Ok(())
+  }
+
   pub(crate) fn build_string(&mut self, count: u16) -> Result {
-    let count = usize::from(count);
-
-    let start =
-      self
-        .stack
-        .len()
-        .checked_sub(count)
-        .ok_or_else(|| Error::Internal {
-          message: "bytecode stack underflow".into(),
-        })?;
-
-    let parts = self.stack[start..]
+    let parts = self
+      .pop_elements(usize::from(count))?
       .iter()
       .map(ToString::to_string)
       .collect::<String>();
-
-    self.stack.truncate(start);
 
     self.push(Object::Str(parts));
 
@@ -215,6 +211,19 @@ impl Frame {
           })?,
       ),
     )
+  }
+
+  fn pop_elements(&mut self, count: usize) -> Result<Vec<Object>> {
+    let start =
+      self
+        .stack
+        .len()
+        .checked_sub(count)
+        .ok_or_else(|| Error::Internal {
+          message: "bytecode stack underflow".into(),
+        })?;
+
+    Ok(self.stack.split_off(start))
   }
 
   pub(crate) fn push(&mut self, object: Object) {

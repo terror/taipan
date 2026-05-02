@@ -133,12 +133,23 @@ impl<'a> LowerAst<'a> {
         orelse: Box::new(self.expr(&node.orelse)?),
         test: Box::new(self.expr(&node.test)?),
       }),
+      ruff_python_ast::Expr::List(node) => Ok(Expr::List(
+        node
+          .elts
+          .iter()
+          .map(|expr| self.expr(expr))
+          .collect::<Result<_>>()?,
+      )),
       ruff_python_ast::Expr::Name(node) => Ok(Expr::Name(node.id.to_string())),
       ruff_python_ast::Expr::NoneLiteral(_) => Ok(Expr::None),
       ruff_python_ast::Expr::NumberLiteral(node) => Self::number(node),
       ruff_python_ast::Expr::StringLiteral(node) => {
         Ok(Expr::String(node.value.to_str().to_owned()))
       }
+      ruff_python_ast::Expr::Subscript(node) => Ok(Expr::Subscript {
+        slice: Box::new(self.expr(&node.slice)?),
+        value: Box::new(self.expr(&node.value)?),
+      }),
       ruff_python_ast::Expr::UnaryOp(node) => {
         let operator = match node.op {
           UnaryOp::USub => UnaryOperator::USub,
@@ -247,7 +258,7 @@ impl<'a> LowerAst<'a> {
   fn stmt(&self, stmt: &ruff_python_ast::Stmt) -> Result<Stmt> {
     match stmt {
       ruff_python_ast::Stmt::AnnAssign(node) => Ok(Stmt::AnnAssign {
-        target: Self::target(&node.target)?,
+        target: self.target(&node.target)?,
         value: node
           .value
           .as_deref()
@@ -258,13 +269,13 @@ impl<'a> LowerAst<'a> {
         targets: node
           .targets
           .iter()
-          .map(Self::target)
+          .map(|target| self.target(target))
           .collect::<Result<Vec<_>>>()?,
         value: self.expr(&node.value)?,
       }),
       ruff_python_ast::Stmt::AugAssign(node) => Ok(Stmt::AugAssign {
         operator: Self::binary_operator(node.op)?,
-        target: Self::target(&node.target)?,
+        target: self.target(&node.target)?,
         value: self.expr(&node.value)?,
       }),
       ruff_python_ast::Stmt::Break(_) => Ok(Stmt::Break),
@@ -322,9 +333,13 @@ impl<'a> LowerAst<'a> {
     }
   }
 
-  fn target(target: &ruff_python_ast::Expr) -> Result<Expr> {
+  fn target(&self, target: &ruff_python_ast::Expr) -> Result<Expr> {
     match target {
       ruff_python_ast::Expr::Name(name) => Ok(Expr::Name(name.id.to_string())),
+      ruff_python_ast::Expr::Subscript(node) => Ok(Expr::Subscript {
+        slice: Box::new(self.expr(&node.slice)?),
+        value: Box::new(self.expr(&node.value)?),
+      }),
       _ => Err(Error::UnsupportedSyntax {
         message: "complex assignment target".into(),
       }),

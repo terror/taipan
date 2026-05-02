@@ -158,17 +158,7 @@ fn len(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
     });
   }
 
-  match &arguments[0] {
-    Object::Str(s) => i64::try_from(s.len())
-      .map(Object::Int)
-      .map_err(|_| Error::Overflow),
-    _ => Err(Error::TypeError {
-      message: format!(
-        "object of type '{}' has no len()",
-        arguments[0].type_name()
-      ),
-    }),
-  }
+  arguments[0].len()
 }
 
 fn max(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {

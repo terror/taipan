@@ -443,6 +443,57 @@ fn function_call() -> Result {
 }
 
 #[test]
+fn lists() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      foo = [1, "bar", 3]
+      print(foo)
+      print(foo[0])
+      print(foo[-1])
+      print(len(foo))
+      print(bool([]))
+      print(bool([1]))
+      print([1, 2] == [1, 2])
+      print([1, 2] == [2, 1])
+      "#,
+    )
+    .expected_stdout(Exact("[1, bar, 3]\n1\n3\n3\nFalse\nTrue\nTrue\nFalse\n"))
+    .run()
+}
+
+#[test]
+fn list_assignment() -> Result {
+  Test::new()?
+    .program(
+      "
+      foo = [1, 2, 3]
+      bar = foo
+      bar[1] = 4
+      foo[2] += 5
+      print(foo)
+      print(bar)
+      ",
+    )
+    .expected_stdout(Exact("[1, 4, 8]\n[1, 4, 8]\n"))
+    .run()
+}
+
+#[test]
+fn list_operations() -> Result {
+  Test::new()?
+    .program(
+      "
+      print([1] + [2, 3])
+      print([1, 2] * 2)
+      print(2 * [3])
+      ",
+    )
+    .expected_stdout(Exact("[1, 2, 3]\n[1, 2, 1, 2]\n[3, 3]\n"))
+    .run()
+}
+
+#[test]
 fn implicit_return() -> Result {
   Test::new()?
     .program(

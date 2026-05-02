@@ -3,6 +3,7 @@ use super::*;
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[typeshare]
 pub struct Code {
+  #[serde(skip)]
   #[typeshare(skip)]
   pub constants: Vec<Object>,
   pub freevars: Vec<String>,

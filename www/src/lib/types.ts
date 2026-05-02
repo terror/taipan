@@ -15,6 +15,8 @@ export type Instruction =
   | { opcode: 'binaryPow'; argument?: undefined }
   | { opcode: 'binaryRShift'; argument?: undefined }
   | { opcode: 'binarySub'; argument?: undefined }
+  | { opcode: 'binarySubscript'; argument?: undefined }
+  | { opcode: 'buildList'; argument: number }
   | { opcode: 'buildString'; argument: number }
   | { opcode: 'callFunction'; argument: number }
   | { opcode: 'compareEq'; argument?: undefined }
@@ -37,6 +39,7 @@ export type Instruction =
   | { opcode: 'storeFast'; argument: number }
   | { opcode: 'storeFree'; argument: number }
   | { opcode: 'storeName'; argument: number }
+  | { opcode: 'storeSubscript'; argument?: undefined }
   | { opcode: 'unaryInvert'; argument?: undefined }
   | { opcode: 'unaryNeg'; argument?: undefined }
   | { opcode: 'unaryNot'; argument?: undefined }

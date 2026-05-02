@@ -59,9 +59,14 @@ pub(crate) enum Expr {
     test: Box<Expr>,
   },
   Int(i64),
+  List(Vec<Expr>),
   Name(String),
   None,
   String(String),
+  Subscript {
+    slice: Box<Expr>,
+    value: Box<Expr>,
+  },
   Unary {
     operand: Box<Expr>,
     operator: UnaryOperator,
