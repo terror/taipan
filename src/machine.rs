@@ -3,6 +3,7 @@ use super::*;
 pub struct Machine<W: Write> {
   frames: Vec<Frame>,
   globals: HashMap<String, Object>,
+  heap: Heap,
   output: W,
 }
 
@@ -13,15 +14,29 @@ impl Machine<Stdout> {
   ///
   /// Returns an error if execution fails.
   pub fn run(code: Code) -> Result<Object> {
+    let (result, _heap) = Self::run_with_heap(code)?;
+
+    Ok(result)
+  }
+
+  /// Runs `code` with standard output and returns the heap used by execution.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if execution fails.
+  pub fn run_with_heap(code: Code) -> Result<(Object, Heap)> {
     let mut machine = Machine {
       frames: Vec::new(),
       globals: HashMap::new(),
+      heap: Heap::default(),
       output: io::stdout(),
     };
 
     machine.initialize();
 
-    machine.execute(code)
+    let result = machine.execute(code)?;
+
+    Ok((result, machine.heap))
   }
 }
 
@@ -33,6 +48,19 @@ impl<W: Write> Machine<W> {
     let (lhs, rhs) = self.frame_mut()?.pop2()?;
 
     self.frame_mut()?.push(operation(&lhs, &rhs)?);
+
+    Ok(())
+  }
+
+  fn binary_operation_heap(
+    &mut self,
+    operation: fn(&Object, &Object, &mut Heap) -> Result<Object>,
+  ) -> Result {
+    let (lhs, rhs) = self.frame_mut()?.pop2()?;
+
+    let result = operation(&lhs, &rhs, &mut self.heap)?;
+
+    self.frame_mut()?.push(result);
 
     Ok(())
   }
@@ -103,6 +131,56 @@ impl<W: Write> Machine<W> {
     Ok(bound.into_iter().flatten().collect())
   }
 
+  fn build_dict(&mut self, count: u16) -> Result {
+    let items = self
+      .frame_mut()?
+      .pop_items(usize::from(count).checked_mul(2).ok_or(Error::Overflow)?)?;
+
+    let entries = items
+      .chunks_exact(2)
+      .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
+      .collect();
+
+    let dict = self.heap.dict_object(entries)?;
+
+    self.frame_mut()?.push(dict);
+
+    Ok(())
+  }
+
+  fn build_list(&mut self, count: u16) -> Result {
+    let elements = self.frame_mut()?.pop_items(usize::from(count))?;
+
+    let list = self.heap.list(elements);
+
+    self.frame_mut()?.push(list);
+
+    Ok(())
+  }
+
+  fn build_string(&mut self, count: u16) -> Result {
+    let parts = self
+      .frame_mut()?
+      .pop_items(usize::from(count))?
+      .iter()
+      .map(|object| object.to_string(&self.heap))
+      .collect::<String>();
+
+    self.frame_mut()?.push(Object::Str(parts));
+
+    Ok(())
+  }
+
+  fn build_tuple(&mut self, count: u16) -> Result {
+    let elements = self.frame_mut()?.pop_items(usize::from(count))?;
+
+    let tuple = self.heap.tuple(elements);
+
+    self.frame_mut()?.push(tuple);
+
+    Ok(())
+  }
+
   fn call_function_keywords(
     &mut self,
     positional_count: u8,
@@ -157,7 +235,8 @@ impl<W: Write> Machine<W> {
           });
         }
 
-        let result = builtin.call(&arguments, &mut self.output)?;
+        let result =
+          builtin.call(&arguments, &mut self.heap, &mut self.output)?;
 
         self.frame_mut()?.push(result);
       }
@@ -173,13 +252,15 @@ impl<W: Write> Machine<W> {
 
   fn compare_eq(&mut self) -> Result {
     let (lhs, rhs) = self.frame_mut()?.pop2()?;
-    self.frame_mut()?.push(lhs.compare_eq(&rhs));
+    let result = lhs.compare_eq(&rhs, &self.heap);
+    self.frame_mut()?.push(result);
     Ok(())
   }
 
   fn compare_ne(&mut self) -> Result {
     let (lhs, rhs) = self.frame_mut()?.pop2()?;
-    self.frame_mut()?.push(lhs.compare_ne(&rhs));
+    let result = lhs.compare_ne(&rhs, &self.heap);
+    self.frame_mut()?.push(result);
     Ok(())
   }
 
@@ -202,7 +283,9 @@ impl<W: Write> Machine<W> {
     instruction: Instruction,
   ) -> Result<Option<Object>> {
     match instruction {
-      Instruction::BinaryAdd => self.binary_operation(Object::binary_add)?,
+      Instruction::BinaryAdd => {
+        self.binary_operation_heap(Object::binary_add)?;
+      }
       Instruction::BinaryBitAnd => {
         self.binary_operation(Object::binary_bit_and)?;
       }
@@ -220,21 +303,23 @@ impl<W: Write> Machine<W> {
         self.binary_operation(Object::binary_lshift)?;
       }
       Instruction::BinaryMod => self.binary_operation(Object::binary_mod)?,
-      Instruction::BinaryMul => self.binary_operation(Object::binary_mul)?,
+      Instruction::BinaryMul => {
+        self.binary_operation_heap(Object::binary_mul)?;
+      }
       Instruction::BinaryPow => self.binary_operation(Object::binary_pow)?,
       Instruction::BinaryRShift => {
         self.binary_operation(Object::binary_rshift)?;
       }
       Instruction::BinarySub => self.binary_operation(Object::binary_sub)?,
       Instruction::BinarySubscript => {
-        self.binary_operation(Object::get_item)?;
+        let (lhs, rhs) = self.frame_mut()?.pop2()?;
+        let result = lhs.get_item(&rhs, &self.heap)?;
+        self.frame_mut()?.push(result);
       }
-      Instruction::BuildDict(count) => self.frame_mut()?.build_dict(count)?,
-      Instruction::BuildList(count) => self.frame_mut()?.build_list(count)?,
-      Instruction::BuildString(count) => {
-        self.frame_mut()?.build_string(count)?;
-      }
-      Instruction::BuildTuple(count) => self.frame_mut()?.build_tuple(count)?,
+      Instruction::BuildDict(count) => self.build_dict(count)?,
+      Instruction::BuildList(count) => self.build_list(count)?,
+      Instruction::BuildString(count) => self.build_string(count)?,
+      Instruction::BuildTuple(count) => self.build_tuple(count)?,
       Instruction::CallFunction(argc) => {
         self.call_function_with_keywords(argc, Vec::new())?;
       }
@@ -247,12 +332,18 @@ impl<W: Write> Machine<W> {
       Instruction::CompareEq => self.compare_eq()?,
       Instruction::CompareGe => self.binary_operation(Object::compare_ge)?,
       Instruction::CompareGt => self.binary_operation(Object::compare_gt)?,
-      Instruction::CompareIn => self.binary_operation(Object::compare_in)?,
+      Instruction::CompareIn => {
+        let (lhs, rhs) = self.frame_mut()?.pop2()?;
+        let result = lhs.compare_in(&rhs, &self.heap)?;
+        self.frame_mut()?.push(result);
+      }
       Instruction::CompareLe => self.binary_operation(Object::compare_le)?,
       Instruction::CompareLt => self.binary_operation(Object::compare_lt)?,
       Instruction::CompareNe => self.compare_ne()?,
       Instruction::CompareNotIn => {
-        self.binary_operation(Object::compare_not_in)?;
+        let (lhs, rhs) = self.frame_mut()?.pop2()?;
+        let result = lhs.compare_not_in(&rhs, &self.heap)?;
+        self.frame_mut()?.push(result);
       }
       Instruction::Dup => self.dup()?,
       Instruction::ForIter(target) => self.for_iter(target)?,
@@ -307,7 +398,7 @@ impl<W: Write> Machine<W> {
   fn for_iter(&mut self, target: u16) -> Result {
     let iterator = self.frame()?.peek()?;
 
-    if let Some(item) = iterator.next()? {
+    if let Some(item) = iterator.next(&mut self.heap)? {
       self.frame_mut()?.push(item);
     } else {
       self.frame_mut()?.pop()?;
@@ -332,7 +423,8 @@ impl<W: Write> Machine<W> {
   fn get_iter(&mut self) -> Result {
     let value = self.frame_mut()?.pop()?;
 
-    self.frame_mut()?.push(value.make_iterator()?);
+    let iterator = value.make_iterator(&mut self.heap)?;
+    self.frame_mut()?.push(iterator);
 
     Ok(())
   }
@@ -423,7 +515,7 @@ impl<W: Write> Machine<W> {
   fn pop_jump_if_false(&mut self, target: u16) -> Result {
     let object = self.frame_mut()?.pop()?;
 
-    if !object.is_truthy() {
+    if !object.is_truthy(&self.heap)? {
       self.frame_mut()?.jump(target)?;
     }
 
@@ -433,7 +525,7 @@ impl<W: Write> Machine<W> {
   fn pop_jump_if_true(&mut self, target: u16) -> Result {
     let object = self.frame_mut()?.pop()?;
 
-    if object.is_truthy() {
+    if object.is_truthy(&self.heap)? {
       self.frame_mut()?.jump(target)?;
     }
 
@@ -483,7 +575,7 @@ impl<W: Write> Machine<W> {
 
     let value = self.frame_mut()?.pop()?;
 
-    target.set_item(&index, value)
+    target.set_item(&index, value, &mut self.heap)
   }
 
   fn unary_invert(&mut self) -> Result {
@@ -505,7 +597,8 @@ impl<W: Write> Machine<W> {
   fn unary_not(&mut self) -> Result {
     let value = self.frame_mut()?.pop()?;
 
-    self.frame_mut()?.push(value.unary_not());
+    let value = value.unary_not(&self.heap)?;
+    self.frame_mut()?.push(value);
 
     Ok(())
   }
@@ -521,7 +614,10 @@ impl<W: Write> Machine<W> {
   fn unpack_sequence(&mut self, count: u16) -> Result {
     let value = self.frame_mut()?.pop()?;
 
-    for element in value.unpack_sequence(usize::from(count))?.into_iter().rev()
+    for element in value
+      .unpack_sequence(usize::from(count), &self.heap)?
+      .into_iter()
+      .rev()
     {
       self.frame_mut()?.push(element);
     }
@@ -535,9 +631,24 @@ impl<W: Write> Machine<W> {
   ///
   /// Returns an error if execution fails or writing to `output` fails.
   pub fn with_output(code: Code, output: W) -> Result<(Object, W)> {
+    let (result, _heap, output) = Self::with_output_and_heap(code, output)?;
+
+    Ok((result, output))
+  }
+
+  /// Runs `code` with `output` and returns the heap used by execution.
+  ///
+  /// # Errors
+  ///
+  /// Returns an error if execution fails or writing to `output` fails.
+  pub fn with_output_and_heap(
+    code: Code,
+    output: W,
+  ) -> Result<(Object, Heap, W)> {
     let mut machine = Machine {
       frames: Vec::new(),
       globals: HashMap::new(),
+      heap: Heap::default(),
       output,
     };
 
@@ -545,7 +656,7 @@ impl<W: Write> Machine<W> {
 
     let result = machine.execute(code)?;
 
-    Ok((result, machine.output))
+    Ok((result, machine.heap, machine.output))
   }
 }
 
@@ -604,5 +715,26 @@ mod tests {
       },
       "invalid jump target",
     );
+  }
+
+  #[test]
+  fn with_output_and_heap_returns_displayable_heap_object() {
+    let (result, heap, output) = Machine::with_output_and_heap(
+      Code {
+        constants: vec![Object::Int(1), Object::Int(2)],
+        instructions: vec![
+          Instruction::LoadConst(0),
+          Instruction::LoadConst(1),
+          Instruction::BuildList(2),
+          Instruction::Return,
+        ],
+        ..Default::default()
+      },
+      Vec::new(),
+    )
+    .unwrap();
+
+    assert_eq!(output, Vec::new());
+    assert_eq!(result.display(&heap).to_string(), "[1, 2]");
   }
 }

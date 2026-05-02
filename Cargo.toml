@@ -21,6 +21,7 @@ unreachable_pub = "deny"
 
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
+indexmap = "2.14.0"
 num-traits = "0.2.19"
 ruff_python_ast = { git = "https://github.com/astral-sh/ruff", version = "0.0.0" }
 ruff_python_parser = { git = "https://github.com/astral-sh/ruff", version = "0.0.0" }

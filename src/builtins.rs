@@ -51,7 +51,11 @@ pub(crate) const BUILTINS: &[Builtin] = &[
   },
 ];
 
-fn abs(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+fn abs(
+  arguments: &[Object],
+  _heap: &mut Heap,
+  _output: &mut dyn Write,
+) -> Result<Object> {
   if arguments.len() != 1 {
     return Err(Error::TypeError {
       message: "abs() takes exactly one argument".into(),
@@ -73,7 +77,11 @@ fn abs(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
   }
 }
 
-fn bool(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+fn bool(
+  arguments: &[Object],
+  heap: &mut Heap,
+  _output: &mut dyn Write,
+) -> Result<Object> {
   if arguments.is_empty() {
     return Ok(Object::Bool(false));
   }
@@ -84,10 +92,14 @@ fn bool(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
     });
   }
 
-  Ok(Object::Bool(arguments[0].is_truthy()))
+  Ok(Object::Bool(arguments[0].is_truthy(heap)?))
 }
 
-fn float(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+fn float(
+  arguments: &[Object],
+  _heap: &mut Heap,
+  _output: &mut dyn Write,
+) -> Result<Object> {
   if arguments.is_empty() {
     return Ok(Object::Float(0.0));
   }
@@ -121,7 +133,11 @@ fn float(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
   }
 }
 
-fn int(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+fn int(
+  arguments: &[Object],
+  _heap: &mut Heap,
+  _output: &mut dyn Write,
+) -> Result<Object> {
   if arguments.is_empty() {
     return Ok(Object::Int(0));
   }
@@ -155,21 +171,33 @@ fn int(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
   }
 }
 
-fn len(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+fn len(
+  arguments: &[Object],
+  heap: &mut Heap,
+  _output: &mut dyn Write,
+) -> Result<Object> {
   if arguments.len() != 1 {
     return Err(Error::TypeError {
       message: "len() takes exactly one argument".into(),
     });
   }
 
-  arguments[0].len()
+  arguments[0].len(heap)
 }
 
-fn max(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+fn max(
+  arguments: &[Object],
+  _heap: &mut Heap,
+  _output: &mut dyn Write,
+) -> Result<Object> {
   minmax(arguments, Object::compare_gt, "max")
 }
 
-fn min(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+fn min(
+  arguments: &[Object],
+  _heap: &mut Heap,
+  _output: &mut dyn Write,
+) -> Result<Object> {
   minmax(arguments, Object::compare_lt, "min")
 }
 
@@ -195,13 +223,17 @@ fn minmax(
   Ok(result.clone())
 }
 
-fn print(arguments: &[Object], output: &mut dyn Write) -> Result<Object> {
+fn print(
+  arguments: &[Object],
+  heap: &mut Heap,
+  output: &mut dyn Write,
+) -> Result<Object> {
   writeln!(
     output,
     "{}",
     arguments
       .iter()
-      .map(ToString::to_string)
+      .map(|object| object.to_string(heap))
       .collect::<Vec<_>>()
       .join(" ")
   )
@@ -210,7 +242,11 @@ fn print(arguments: &[Object], output: &mut dyn Write) -> Result<Object> {
   Ok(Object::None)
 }
 
-fn range(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+fn range(
+  arguments: &[Object],
+  heap: &mut Heap,
+  _output: &mut dyn Write,
+) -> Result<Object> {
   if arguments.is_empty() || arguments.len() > 3 {
     return Err(Error::TypeError {
       message: "range() expected 1 to 3 arguments".into(),
@@ -255,20 +291,28 @@ fn range(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
     current = current.checked_add(increment).ok_or(Error::Overflow)?;
   }
 
-  Ok(Object::list(items))
+  Ok(heap.list(items))
 }
 
-fn repr(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+fn repr(
+  arguments: &[Object],
+  heap: &mut Heap,
+  _output: &mut dyn Write,
+) -> Result<Object> {
   if arguments.len() != 1 {
     return Err(Error::TypeError {
       message: "repr() takes exactly one argument".into(),
     });
   }
 
-  Ok(Object::Str(arguments[0].to_string()))
+  Ok(Object::Str(arguments[0].to_string(heap)))
 }
 
-fn r#type(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+fn r#type(
+  arguments: &[Object],
+  _heap: &mut Heap,
+  _output: &mut dyn Write,
+) -> Result<Object> {
   if arguments.len() != 1 {
     return Err(Error::TypeError {
       message: "type() takes exactly one argument".into(),
@@ -281,7 +325,11 @@ fn r#type(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
   )))
 }
 
-fn str(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+fn str(
+  arguments: &[Object],
+  heap: &mut Heap,
+  _output: &mut dyn Write,
+) -> Result<Object> {
   if arguments.is_empty() {
     return Ok(Object::Str(String::new()));
   }
@@ -292,5 +340,5 @@ fn str(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
     });
   }
 
-  Ok(Object::Str(arguments[0].to_string()))
+  Ok(Object::Str(arguments[0].to_string(heap)))
 }

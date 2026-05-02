@@ -421,9 +421,25 @@ fn dictionary_duplicate_keys() -> Result {
       foo = {"foo": 1, "foo": 2}
       print(foo)
       print(len(foo))
+      bar = {1: "foo", 1.0: "bar", True: "baz"}
+      print(bar)
+      print(len(bar))
       "#,
     )
-    .expected_stdout(Exact("{foo: 2}\n1\n"))
+    .expected_stdout(Exact("{foo: 2}\n1\n{1: baz}\n1\n"))
+    .run()
+}
+
+#[test]
+fn dictionary_unhashable_key() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      {[]: "foo"}
+      "#,
+    )
+    .expected_status(1)
+    .expected_stderr(Contains("TypeError: unhashable type: 'list'"))
     .run()
 }
 

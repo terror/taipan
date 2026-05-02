@@ -4,7 +4,7 @@ use super::*;
 pub enum Object {
   Bool(bool),
   Builtin(Builtin),
-  Dict(Rc<RefCell<Vec<(Object, Object)>>>),
+  Dict(DictRef),
   Float(f64),
   Function {
     closure: Vec<Rc<RefCell<Option<Object>>>>,
@@ -14,16 +14,16 @@ pub enum Object {
     parameters: Vec<String>,
   },
   Int(i64),
-  Iterator(Rc<RefCell<Iterator>>),
-  List(Rc<RefCell<Vec<Object>>>),
+  Iterator(IteratorRef),
+  List(ListRef),
   #[default]
   None,
   Str(String),
-  Tuple(Rc<Vec<Object>>),
+  Tuple(TupleRef),
 }
 
 impl Object {
-  pub(crate) fn binary_add(&self, rhs: &Self) -> Result<Self> {
+  pub(crate) fn binary_add(&self, rhs: &Self, heap: &mut Heap) -> Result<Self> {
     match (self, rhs) {
       (Self::Int(a), Self::Int(b)) => {
         a.checked_add(*b).map(Self::Int).ok_or(Error::Overflow)
@@ -37,14 +37,14 @@ impl Object {
       }
       (Self::Str(a), Self::Str(b)) => Ok(Self::Str(format!("{a}{b}"))),
       (Self::List(a), Self::List(b)) => {
-        let mut result = a.borrow().clone();
-        result.extend(b.borrow().iter().cloned());
-        Ok(Self::List(Rc::new(RefCell::new(result))))
+        let mut result = heap.list_ref(*a)?.to_vec();
+        result.extend(heap.list_ref(*b)?.iter().cloned());
+        Ok(heap.list(result))
       }
       (Self::Tuple(a), Self::Tuple(b)) => {
-        let mut result = a.iter().cloned().collect::<Vec<_>>();
-        result.extend(b.iter().cloned());
-        Ok(Self::Tuple(Rc::new(result)))
+        let mut result = heap.tuple_ref(*a)?.to_vec();
+        result.extend(heap.tuple_ref(*b)?.iter().cloned());
+        Ok(heap.tuple(result))
       }
       _ => Err(self.binary_type_error("+", rhs)),
     }
@@ -201,7 +201,7 @@ impl Object {
     }
   }
 
-  pub(crate) fn binary_mul(&self, rhs: &Self) -> Result<Self> {
+  pub(crate) fn binary_mul(&self, rhs: &Self, heap: &mut Heap) -> Result<Self> {
     match (self, rhs) {
       (Self::Int(a), Self::Int(b)) => {
         a.checked_mul(*b).map(Self::Int).ok_or(Error::Overflow)
@@ -248,7 +248,7 @@ impl Object {
           usize::try_from(*count).map_err(|_| Error::Overflow)?
         };
 
-        let list = list.borrow();
+        let list = heap.list_ref(*list)?;
 
         let capacity = list.len().checked_mul(count).ok_or(Error::Overflow)?;
 
@@ -262,7 +262,7 @@ impl Object {
           result.extend(list.iter().cloned());
         }
 
-        Ok(Self::List(Rc::new(RefCell::new(result))))
+        Ok(heap.list(result))
       }
       (Self::Tuple(tuple), Self::Int(count))
       | (Self::Int(count), Self::Tuple(tuple)) => {
@@ -271,6 +271,8 @@ impl Object {
         } else {
           usize::try_from(*count).map_err(|_| Error::Overflow)?
         };
+
+        let tuple = heap.tuple_ref(*tuple)?;
 
         let capacity = tuple.len().checked_mul(count).ok_or(Error::Overflow)?;
 
@@ -284,7 +286,7 @@ impl Object {
           result.extend(tuple.iter().cloned());
         }
 
-        Ok(Self::Tuple(Rc::new(result)))
+        Ok(heap.tuple(result))
       }
       _ => Err(self.binary_type_error("*", rhs)),
     }
@@ -363,8 +365,8 @@ impl Object {
     }
   }
 
-  pub(crate) fn compare_eq(&self, rhs: &Self) -> Self {
-    Self::Bool(self == rhs)
+  pub(crate) fn compare_eq(&self, rhs: &Self, heap: &Heap) -> Self {
+    Self::Bool(self.value_eq(rhs, heap))
   }
 
   pub(crate) fn compare_ge(&self, rhs: &Self) -> Result<Self> {
@@ -375,12 +377,19 @@ impl Object {
     self.compare_numeric(rhs, ">", |a, b| a > b)
   }
 
-  pub(crate) fn compare_in(&self, rhs: &Self) -> Result<Self> {
+  pub(crate) fn compare_in(&self, rhs: &Self, heap: &Heap) -> Result<Self> {
     match rhs {
       Self::Dict(dict) => {
-        Ok(Self::Bool(dict.borrow().iter().any(|(key, _)| key == self)))
+        let key = DictKey::new(self, heap)?;
+
+        Ok(Self::Bool(heap.dict_ref(*dict)?.contains_key(&key)))
       }
-      Self::List(list) => Ok(Self::Bool(list.borrow().contains(self))),
+      Self::List(list) => Ok(Self::Bool(
+        heap
+          .list_ref(*list)?
+          .iter()
+          .any(|item| item.value_eq(self, heap)),
+      )),
       Self::Str(string) => match self {
         Self::Str(needle) => Ok(Self::Bool(string.contains(needle))),
         _ => Err(Error::TypeError {
@@ -390,7 +399,12 @@ impl Object {
           ),
         }),
       },
-      Self::Tuple(tuple) => Ok(Self::Bool(tuple.contains(self))),
+      Self::Tuple(tuple) => Ok(Self::Bool(
+        heap
+          .tuple_ref(*tuple)?
+          .iter()
+          .any(|item| item.value_eq(self, heap)),
+      )),
       _ => Err(Error::TypeError {
         message: format!(
           "argument of type '{}' is not iterable",
@@ -408,12 +422,12 @@ impl Object {
     self.compare_numeric(rhs, "<", |a, b| a < b)
   }
 
-  pub(crate) fn compare_ne(&self, rhs: &Self) -> Self {
-    Self::Bool(self != rhs)
+  pub(crate) fn compare_ne(&self, rhs: &Self, heap: &Heap) -> Self {
+    Self::Bool(!self.value_eq(rhs, heap))
   }
 
-  pub(crate) fn compare_not_in(&self, rhs: &Self) -> Result<Self> {
-    let Self::Bool(result) = self.compare_in(rhs)? else {
+  pub(crate) fn compare_not_in(&self, rhs: &Self, heap: &Heap) -> Result<Self> {
+    let Self::Bool(result) = self.compare_in(rhs, heap)? else {
       return Err(Error::Internal {
         message: "membership comparison returned non-bool".into(),
       });
@@ -463,34 +477,26 @@ impl Object {
     Ok(Self::Bool(cmp(a, b)))
   }
 
-  pub(crate) fn dict(entries: Vec<(Object, Object)>) -> Self {
-    let mut result = Vec::<(Object, Object)>::new();
-
-    for (key, value) in entries {
-      if let Some((_, existing)) =
-        result.iter_mut().find(|(existing, _)| existing == &key)
-      {
-        *existing = value;
-      } else {
-        result.push((key, value));
-      }
-    }
-
-    Self::Dict(Rc::new(RefCell::new(result)))
+  #[must_use]
+  pub fn display<'a>(&'a self, heap: &'a Heap) -> ObjectDisplay<'a> {
+    ObjectDisplay::new(self, heap)
   }
 
-  pub(crate) fn get_item(&self, key: &Self) -> Result<Self> {
+  pub(crate) fn get_item(&self, key: &Self, heap: &Heap) -> Result<Self> {
     match self {
-      Self::Dict(dict) => dict
-        .borrow()
-        .iter()
-        .find(|(dict_key, _)| dict_key == key)
-        .map(|(_, value)| value.clone())
-        .ok_or_else(|| Error::Key {
-          key: key.to_string(),
-        }),
+      Self::Dict(dict) => {
+        let dict_key = DictKey::new(key, heap)?;
+
+        heap
+          .dict_ref(*dict)?
+          .get(&dict_key)
+          .map(|entry| entry.value.clone())
+          .ok_or_else(|| Error::Key {
+            key: key.to_string(heap),
+          })
+      }
       Self::List(list) => {
-        let list = list.borrow();
+        let list = heap.list_ref(*list)?;
 
         list
           .get(key.sequence_index(list.len(), "list")?)
@@ -499,12 +505,16 @@ impl Object {
             message: "list index out of range".into(),
           })
       }
-      Self::Tuple(tuple) => tuple
-        .get(key.sequence_index(tuple.len(), "tuple")?)
-        .cloned()
-        .ok_or_else(|| Error::Index {
-          message: "tuple index out of range".into(),
-        }),
+      Self::Tuple(tuple) => {
+        let tuple = heap.tuple_ref(*tuple)?;
+
+        tuple
+          .get(key.sequence_index(tuple.len(), "tuple")?)
+          .cloned()
+          .ok_or_else(|| Error::Index {
+            message: "tuple index out of range".into(),
+          })
+      }
       Self::Str(string) => string
         .chars()
         .nth(key.sequence_index(string.chars().count(), "string")?)
@@ -518,26 +528,26 @@ impl Object {
     }
   }
 
-  pub(crate) fn is_truthy(&self) -> bool {
+  pub(crate) fn is_truthy(&self, heap: &Heap) -> Result<bool> {
     match self {
-      Self::Bool(b) => *b,
-      Self::Builtin(_) | Self::Function { .. } | Self::Iterator(_) => true,
-      Self::Dict(dict) => !dict.borrow().is_empty(),
-      Self::Float(f) => *f != 0.0,
-      Self::Int(i) => *i != 0,
-      Self::List(list) => !list.borrow().is_empty(),
-      Self::None => false,
-      Self::Str(s) => !s.is_empty(),
-      Self::Tuple(tuple) => !tuple.is_empty(),
+      Self::Bool(b) => Ok(*b),
+      Self::Builtin(_) | Self::Function { .. } | Self::Iterator(_) => Ok(true),
+      Self::Dict(dict) => Ok(!heap.dict_ref(*dict)?.is_empty()),
+      Self::Float(f) => Ok(*f != 0.0),
+      Self::Int(i) => Ok(*i != 0),
+      Self::List(list) => Ok(!heap.list_ref(*list)?.is_empty()),
+      Self::None => Ok(false),
+      Self::Str(s) => Ok(!s.is_empty()),
+      Self::Tuple(tuple) => Ok(!heap.tuple_ref(*tuple)?.is_empty()),
     }
   }
 
-  pub(crate) fn len(&self) -> Result<Self> {
+  pub(crate) fn len(&self, heap: &Heap) -> Result<Self> {
     let len = match self {
-      Self::Dict(dict) => dict.borrow().len(),
-      Self::List(list) => list.borrow().len(),
+      Self::Dict(dict) => heap.dict_ref(*dict)?.len(),
+      Self::List(list) => heap.list_ref(*list)?.len(),
       Self::Str(s) => s.len(),
-      Self::Tuple(tuple) => tuple.len(),
+      Self::Tuple(tuple) => heap.tuple_ref(*tuple)?.len(),
       _ => {
         return Err(Error::TypeError {
           message: format!(
@@ -553,23 +563,19 @@ impl Object {
       .map_err(|_| Error::Overflow)
   }
 
-  pub(crate) fn list(elements: Vec<Object>) -> Self {
-    Self::List(Rc::new(RefCell::new(elements)))
-  }
-
-  pub(crate) fn make_iterator(&self) -> Result<Self> {
+  pub(crate) fn make_iterator(&self, heap: &mut Heap) -> Result<Self> {
     let items = match self {
-      Self::Dict(dict) => dict
-        .borrow()
-        .iter()
-        .map(|(key, _)| key.clone())
+      Self::Dict(dict) => heap
+        .dict_ref(*dict)?
+        .values()
+        .map(|entry| entry.key.clone())
         .collect::<Vec<_>>(),
-      Self::List(list) => list.borrow().clone(),
+      Self::List(list) => heap.list_ref(*list)?.to_vec(),
       Self::Str(string) => string
         .chars()
         .map(|c| Self::Str(c.to_string()))
         .collect::<Vec<_>>(),
-      Self::Tuple(tuple) => tuple.iter().cloned().collect::<Vec<_>>(),
+      Self::Tuple(tuple) => heap.tuple_ref(*tuple)?.to_vec(),
       _ => {
         return Err(Error::TypeError {
           message: format!("'{}' object is not iterable", self.type_name()),
@@ -577,17 +583,17 @@ impl Object {
       }
     };
 
-    Ok(Self::Iterator(Rc::new(RefCell::new(Iterator::new(items)))))
+    Ok(heap.iterator(Iterator::new(items)))
   }
 
-  pub(crate) fn next(&self) -> Result<Option<Self>> {
+  pub(crate) fn next(&self, heap: &mut Heap) -> Result<Option<Self>> {
     let Self::Iterator(iterator) = self else {
       return Err(Error::TypeError {
         message: format!("'{}' object is not an iterator", self.type_name()),
       });
     };
 
-    Ok(iterator.borrow_mut().next())
+    Ok(heap.iterator_mut(*iterator)?.next())
   }
 
   fn sequence_index(&self, len: usize, sequence_type: &str) -> Result<usize> {
@@ -612,25 +618,34 @@ impl Object {
     usize::try_from(index).map_err(|_| Error::Overflow)
   }
 
-  pub(crate) fn set_item(&self, key: &Self, value: Self) -> Result {
+  pub(crate) fn set_item(
+    &self,
+    key: &Self,
+    value: Self,
+    heap: &mut Heap,
+  ) -> Result {
     match self {
       Self::Dict(dict) => {
-        let mut dict = dict.borrow_mut();
+        let dict_key = DictKey::new(key, heap)?;
 
-        if let Some((_, existing)) =
-          dict.iter_mut().find(|(dict_key, _)| dict_key == key)
-        {
-          *existing = value;
-        } else {
-          dict.push((key.clone(), value));
-        }
+        let dict = heap.dict_mut(*dict)?;
+
+        dict
+          .entry(dict_key)
+          .and_modify(|entry| entry.value = value.clone())
+          .or_insert(DictObjectEntry {
+            key: key.clone(),
+            value,
+          });
 
         Ok(())
       }
       Self::List(list) => {
-        let mut list = list.borrow_mut();
+        let len = heap.list_ref(*list)?.len();
 
-        let index = key.sequence_index(list.len(), "list")?;
+        let index = key.sequence_index(len, "list")?;
+
+        let list = heap.list_mut(*list)?;
 
         let Some(element) = list.get_mut(index) else {
           return Err(Error::Index {
@@ -651,8 +666,8 @@ impl Object {
     }
   }
 
-  pub(crate) fn tuple(elements: Vec<Object>) -> Self {
-    Self::Tuple(Rc::new(elements))
+  pub(crate) fn to_string(&self, heap: &Heap) -> String {
+    self.display(heap).to_string()
   }
 
   pub(crate) fn type_name(&self) -> &'static str {
@@ -696,8 +711,8 @@ impl Object {
     }
   }
 
-  pub(crate) fn unary_not(&self) -> Self {
-    Self::Bool(!self.is_truthy())
+  pub(crate) fn unary_not(&self, heap: &Heap) -> Result<Self> {
+    Ok(Self::Bool(!self.is_truthy(heap)?))
   }
 
   pub(crate) fn unary_pos(&self) -> Result<Self> {
@@ -713,19 +728,23 @@ impl Object {
     }
   }
 
-  pub(crate) fn unpack_sequence(&self, count: usize) -> Result<Vec<Self>> {
+  pub(crate) fn unpack_sequence(
+    &self,
+    count: usize,
+    heap: &Heap,
+  ) -> Result<Vec<Self>> {
     let elements = match self {
-      Self::Dict(dict) => dict
-        .borrow()
-        .iter()
-        .map(|(key, _)| key.clone())
+      Self::Dict(dict) => heap
+        .dict_ref(*dict)?
+        .values()
+        .map(|entry| entry.key.clone())
         .collect::<Vec<_>>(),
-      Self::List(list) => list.borrow().clone(),
+      Self::List(list) => heap.list_ref(*list)?.to_vec(),
       Self::Str(string) => string
         .chars()
         .map(|c| Self::Str(c.to_string()))
         .collect::<Vec<_>>(),
-      Self::Tuple(tuple) => tuple.iter().cloned().collect::<Vec<_>>(),
+      Self::Tuple(tuple) => heap.tuple_ref(*tuple)?.to_vec(),
       _ => {
         return Err(Error::TypeError {
           message: format!(
@@ -752,77 +771,8 @@ impl Object {
       }),
     }
   }
-}
 
-impl Display for Object {
-  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-    match self {
-      Self::Bool(true) => write!(f, "True"),
-      Self::Bool(false) => write!(f, "False"),
-      Self::Builtin(builtin) => {
-        write!(f, "<built-in function {}>", builtin.name())
-      }
-      Self::Dict(dict) => {
-        write!(f, "{{")?;
-
-        for (index, (key, value)) in dict.borrow().iter().enumerate() {
-          if index > 0 {
-            write!(f, ", ")?;
-          }
-
-          write!(f, "{key}: {value}")?;
-        }
-
-        write!(f, "}}")
-      }
-      Self::Float(float) => {
-        if float.fract() == 0.0 && float.is_finite() {
-          write!(f, "{float:.1}")
-        } else {
-          write!(f, "{float}")
-        }
-      }
-      Self::Function { name, .. } => write!(f, "<function {name}>"),
-      Self::Int(int) => write!(f, "{int}"),
-      Self::Iterator(_) => write!(f, "<iterator>"),
-      Self::List(list) => {
-        write!(f, "[")?;
-
-        for (index, object) in list.borrow().iter().enumerate() {
-          if index > 0 {
-            write!(f, ", ")?;
-          }
-
-          write!(f, "{object}")?;
-        }
-
-        write!(f, "]")
-      }
-      Self::None => write!(f, "None"),
-      Self::Str(string) => write!(f, "{string}"),
-      Self::Tuple(tuple) => {
-        write!(f, "(")?;
-
-        for (index, object) in tuple.iter().enumerate() {
-          if index > 0 {
-            write!(f, ", ")?;
-          }
-
-          write!(f, "{object}")?;
-        }
-
-        if tuple.len() == 1 {
-          write!(f, ",")?;
-        }
-
-        write!(f, ")")
-      }
-    }
-  }
-}
-
-impl PartialEq for Object {
-  fn eq(&self, other: &Self) -> bool {
+  pub(crate) fn value_eq(&self, other: &Self, heap: &Heap) -> bool {
     match (self, other) {
       (Self::Int(a), Self::Int(b)) => a == b,
       (Self::Float(a), Self::Float(b)) => a == b,
@@ -830,21 +780,25 @@ impl PartialEq for Object {
       (Self::Float(a), Self::Int(b)) => b.to_f64().is_some_and(|b| *a == b),
       (Self::Bool(a), Self::Bool(b)) => a == b,
       (Self::Dict(a), Self::Dict(b)) => {
-        if Rc::ptr_eq(a, b) {
+        if a == b {
           return true;
         }
 
-        let a = a.borrow();
-        let b = b.borrow();
+        let Ok(a) = heap.dict_ref(*a) else {
+          return false;
+        };
+
+        let Ok(b) = heap.dict_ref(*b) else {
+          return false;
+        };
 
         a.len() == b.len()
-          && a.iter().all(|(key, value)| {
-            b.iter()
-              .find(|(other_key, _)| other_key == key)
-              .is_some_and(|(_, other_value)| other_value == value)
+          && a.iter().all(|(key, entry)| {
+            b.get(key)
+              .is_some_and(|other| other.value.value_eq(&entry.value, heap))
           })
       }
-      (Self::Iterator(a), Self::Iterator(b)) => Rc::ptr_eq(a, b),
+      (Self::Iterator(a), Self::Iterator(b)) => a == b,
       (
         Self::Function {
           closure: _,
@@ -867,11 +821,96 @@ impl PartialEq for Object {
           && a_code == b_code
       }
       (Self::List(a), Self::List(b)) => {
-        Rc::ptr_eq(a, b) || *a.borrow() == *b.borrow()
+        a == b
+          || heap
+            .list_ref(*a)
+            .ok()
+            .zip(heap.list_ref(*b).ok())
+            .is_some_and(|(a, b)| {
+              a.len() == b.len()
+                && a.iter().zip(b).all(|(a, b)| a.value_eq(b, heap))
+            })
       }
       (Self::Str(a), Self::Str(b)) => a == b,
       (Self::None, Self::None) => true,
-      (Self::Tuple(a), Self::Tuple(b)) => Rc::ptr_eq(a, b) || a == b,
+      (Self::Tuple(a), Self::Tuple(b)) => {
+        a == b
+          || heap
+            .tuple_ref(*a)
+            .ok()
+            .zip(heap.tuple_ref(*b).ok())
+            .is_some_and(|(a, b)| {
+              a.len() == b.len()
+                && a.iter().zip(b).all(|(a, b)| a.value_eq(b, heap))
+            })
+      }
+      _ => false,
+    }
+  }
+}
+
+impl Display for Object {
+  fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Bool(true) => write!(f, "True"),
+      Self::Bool(false) => write!(f, "False"),
+      Self::Builtin(builtin) => {
+        write!(f, "<built-in function {}>", builtin.name())
+      }
+      Self::Dict(_) => write!(f, "<dict>"),
+      Self::Float(float) => {
+        if float.fract() == 0.0 && float.is_finite() {
+          write!(f, "{float:.1}")
+        } else {
+          write!(f, "{float}")
+        }
+      }
+      Self::Function { name, .. } => write!(f, "<function {name}>"),
+      Self::Int(int) => write!(f, "{int}"),
+      Self::Iterator(_) => write!(f, "<iterator>"),
+      Self::List(_) => write!(f, "<list>"),
+      Self::None => write!(f, "None"),
+      Self::Str(string) => write!(f, "{string}"),
+      Self::Tuple(_) => write!(f, "<tuple>"),
+    }
+  }
+}
+
+impl PartialEq for Object {
+  fn eq(&self, other: &Self) -> bool {
+    match (self, other) {
+      (Self::Int(a), Self::Int(b)) => a == b,
+      (Self::Float(a), Self::Float(b)) => a == b,
+      (Self::Int(a), Self::Float(b)) => a.to_f64().is_some_and(|a| a == *b),
+      (Self::Float(a), Self::Int(b)) => b.to_f64().is_some_and(|b| *a == b),
+      (Self::Bool(a), Self::Bool(b)) => a == b,
+      (Self::Dict(a), Self::Dict(b)) => a == b,
+      (Self::Iterator(a), Self::Iterator(b)) => a == b,
+      (Self::List(a), Self::List(b)) => a == b,
+      (Self::Tuple(a), Self::Tuple(b)) => a == b,
+      (
+        Self::Function {
+          closure: _,
+          code: a_code,
+          defaults: a_defaults,
+          name: a_name,
+          parameters: a_params,
+        },
+        Self::Function {
+          closure: _,
+          code: b_code,
+          defaults: b_defaults,
+          name: b_name,
+          parameters: b_params,
+        },
+      ) => {
+        a_name == b_name
+          && a_params == b_params
+          && a_defaults == b_defaults
+          && a_code == b_code
+      }
+      (Self::Str(a), Self::Str(b)) => a == b,
+      (Self::None, Self::None) => true,
       _ => false,
     }
   }
@@ -885,7 +924,9 @@ mod tests {
   fn binary_add() {
     #[track_caller]
     fn case(lhs: &Object, rhs: &Object, expected: &Object) {
-      assert_eq!(&lhs.binary_add(rhs).unwrap(), expected);
+      let mut heap = Heap::default();
+
+      assert_eq!(&lhs.binary_add(rhs, &mut heap).unwrap(), expected);
     }
 
     case(&Object::Int(1), &Object::Int(2), &Object::Int(3));
@@ -904,9 +945,11 @@ mod tests {
 
   #[test]
   fn binary_add_type_error() {
+    let mut heap = Heap::default();
+
     assert!(
       Object::Int(1)
-        .binary_add(&Object::Str("foo".into()))
+        .binary_add(&Object::Str("foo".into()), &mut heap)
         .is_err()
     );
   }
@@ -972,7 +1015,9 @@ mod tests {
   fn binary_mul() {
     #[track_caller]
     fn case(lhs: &Object, rhs: &Object, expected: &Object) {
-      assert_eq!(&lhs.binary_mul(rhs).unwrap(), expected);
+      let mut heap = Heap::default();
+
+      assert_eq!(&lhs.binary_mul(rhs, &mut heap).unwrap(), expected);
     }
 
     case(&Object::Int(3), &Object::Int(4), &Object::Int(12));
@@ -1016,13 +1061,15 @@ mod tests {
 
   #[test]
   fn comparison() {
+    let heap = Heap::default();
+
     assert_eq!(
-      Object::Int(1).compare_eq(&Object::Int(1)),
+      Object::Int(1).compare_eq(&Object::Int(1), &heap),
       Object::Bool(true)
     );
 
     assert_eq!(
-      Object::Int(1).compare_ne(&Object::Int(2)),
+      Object::Int(1).compare_ne(&Object::Int(2), &heap),
       Object::Bool(true)
     );
 
@@ -1043,7 +1090,7 @@ mod tests {
   fn display() {
     #[track_caller]
     fn case(obj: &Object, expected: &str) {
-      assert_eq!(obj.to_string(), expected);
+      assert_eq!(obj.to_string(&Heap::default()), expected);
     }
 
     case(&Object::None, "None");
@@ -1059,7 +1106,7 @@ mod tests {
   fn truthiness() {
     #[track_caller]
     fn case(obj: &Object, expected: bool) {
-      assert_eq!(obj.is_truthy(), expected);
+      assert_eq!(obj.is_truthy(&Heap::default()).unwrap(), expected);
     }
 
     case(&Object::None, false);
