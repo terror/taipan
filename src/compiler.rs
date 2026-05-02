@@ -311,6 +311,18 @@ impl Compiler {
   fn compile_function_def(&mut self, function: &FunctionDef) -> Result {
     let symbols = SymbolTable::function(function)?;
 
+    let parameters = function
+      .parameters
+      .iter()
+      .map(|parameter| parameter.name.clone())
+      .collect::<Vec<_>>();
+
+    let default_count = function
+      .parameters
+      .iter()
+      .filter(|parameter| parameter.default.is_some())
+      .count();
+
     self.scopes.enter_function(symbols);
 
     for local in self.scope().symbols.locals().to_vec() {
@@ -337,14 +349,30 @@ impl Compiler {
       self.scopes.ensure_capturable(freevar)?;
     }
 
+    for parameter in function
+      .parameters
+      .iter()
+      .filter_map(|parameter| parameter.default.as_ref())
+    {
+      self.compile_expr(parameter)?;
+    }
+
     let const_index = self.code_mut().add_const(Object::Function {
       closure: Vec::new(),
+      defaults: Vec::new(),
       name: function.name.clone(),
-      parameters: function.parameters.clone(),
+      parameters,
       code: Rc::new(function_code),
     })?;
 
-    self.code_mut().emit(Instruction::MakeFunction(const_index));
+    let default_count =
+      u8::try_from(default_count).map_err(|_| Error::Compile {
+        message: "too many default arguments".into(),
+      })?;
+
+    self
+      .code_mut()
+      .emit(Instruction::MakeFunction(const_index, default_count));
 
     let instruction = self.scopes.resolve_store(&function.name)?;
 
@@ -963,9 +991,38 @@ mod tests {
         return bar
       "
     })
-    .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
+    .instructions(&[Instruction::MakeFunction(0, 0), Instruction::StoreName(0)])
     .constant(Object::Function {
       closure: Vec::new(),
+      defaults: Vec::new(),
+      name: "foo".to_owned(),
+      parameters: vec!["bar".to_owned()],
+      code: Test::default()
+        .instructions(&[Instruction::LoadFast(0), Instruction::Return])
+        .locals(&["bar"])
+        .function_code(),
+    })
+    .names(&["foo"])
+    .run();
+  }
+
+  #[test]
+  fn function_def_default_argument() {
+    Test::new(indoc! {
+      "
+      def foo(bar=1):
+        return bar
+      "
+    })
+    .instructions(&[
+      Instruction::LoadConst(0),
+      Instruction::MakeFunction(1, 1),
+      Instruction::StoreName(0),
+    ])
+    .constant(Object::Int(1))
+    .constant(Object::Function {
+      closure: Vec::new(),
+      defaults: Vec::new(),
       name: "foo".to_owned(),
       parameters: vec!["bar".to_owned()],
       code: Test::default()
@@ -985,9 +1042,10 @@ mod tests {
         return foo - bar
       "
     })
-    .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
+    .instructions(&[Instruction::MakeFunction(0, 0), Instruction::StoreName(0)])
     .constant(Object::Function {
       closure: Vec::new(),
+      defaults: Vec::new(),
       name: "baz".to_owned(),
       parameters: vec!["foo".to_owned(), "bar".to_owned()],
       code: Test::default()
@@ -1013,9 +1071,10 @@ mod tests {
         bar = 1
       "
     })
-    .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
+    .instructions(&[Instruction::MakeFunction(0, 0), Instruction::StoreName(0)])
     .constant(Object::Function {
       closure: Vec::new(),
+      defaults: Vec::new(),
       name: "foo".to_owned(),
       parameters: Vec::new(),
       code: Test::default()
@@ -1043,9 +1102,10 @@ mod tests {
         bar = 1
       "
     })
-    .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
+    .instructions(&[Instruction::MakeFunction(0, 0), Instruction::StoreName(0)])
     .constant(Object::Function {
       closure: Vec::new(),
+      defaults: Vec::new(),
       name: "foo".to_owned(),
       parameters: Vec::new(),
       code: Test::default()
@@ -1170,20 +1230,22 @@ mod tests {
           return 1
       "
     })
-    .instructions(&[Instruction::MakeFunction(0), Instruction::StoreName(0)])
+    .instructions(&[Instruction::MakeFunction(0, 0), Instruction::StoreName(0)])
     .constant(Object::Function {
       closure: Vec::new(),
+      defaults: Vec::new(),
       name: "foo".to_owned(),
       parameters: Vec::new(),
       code: Test::default()
         .instructions(&[
-          Instruction::MakeFunction(0),
+          Instruction::MakeFunction(0, 0),
           Instruction::StoreFast(0),
           Instruction::LoadConst(1),
           Instruction::Return,
         ])
         .constant(Object::Function {
           closure: Vec::new(),
+          defaults: Vec::new(),
           name: "bar".to_owned(),
           parameters: Vec::new(),
           code: Test::default()

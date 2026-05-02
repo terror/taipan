@@ -8,6 +8,7 @@ pub enum Object {
   Function {
     closure: Vec<Rc<RefCell<Option<Object>>>>,
     code: Rc<Code>,
+    defaults: Vec<Object>,
     name: String,
     parameters: Vec<String>,
   },
@@ -733,16 +734,23 @@ impl PartialEq for Object {
         Self::Function {
           closure: _,
           code: a_code,
+          defaults: a_defaults,
           name: a_name,
           parameters: a_params,
         },
         Self::Function {
           closure: _,
           code: b_code,
+          defaults: b_defaults,
           name: b_name,
           parameters: b_params,
         },
-      ) => a_name == b_name && a_params == b_params && a_code == b_code,
+      ) => {
+        a_name == b_name
+          && a_params == b_params
+          && a_defaults == b_defaults
+          && a_code == b_code
+      }
       (Self::List(a), Self::List(b)) => {
         Rc::ptr_eq(a, b) || *a.borrow() == *b.borrow()
       }

@@ -78,7 +78,13 @@ pub(crate) enum Expr {
 pub(crate) struct FunctionDef {
   pub(crate) body: Vec<Stmt>,
   pub(crate) name: String,
-  pub(crate) parameters: Vec<String>,
+  pub(crate) parameters: Vec<FunctionParameter>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct FunctionParameter {
+  pub(crate) default: Option<Expr>,
+  pub(crate) name: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]

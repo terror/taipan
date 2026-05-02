@@ -443,6 +443,26 @@ fn function_call() -> Result {
 }
 
 #[test]
+fn function_default_arguments() -> Result {
+  Test::new()?
+    .program(
+      "
+      foo = 1
+
+      def bar(baz, qux=foo + 1):
+        return baz + qux
+
+      foo = 10
+
+      print(bar(1))
+      print(bar(1, 3))
+      ",
+    )
+    .expected_stdout(Exact("3\n4\n"))
+    .run()
+}
+
+#[test]
 fn for_loop() -> Result {
   Test::new()?
     .program(
