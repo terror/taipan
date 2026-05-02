@@ -12,7 +12,7 @@ impl Iterator {
   }
 }
 
-impl std::iter::Iterator for Iterator {
+impl iter::Iterator for Iterator {
   type Item = Object;
 
   fn next(&mut self) -> Option<Self::Item> {

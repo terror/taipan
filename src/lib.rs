@@ -29,6 +29,7 @@ use {
     collections::{HashMap, HashSet},
     fmt::{self, Display, Formatter},
     io::{self, Stdout, Write},
+    iter,
     rc::Rc,
   },
   stmt_ext::StmtExt,
