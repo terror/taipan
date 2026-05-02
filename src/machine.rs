@@ -59,18 +59,33 @@ impl<W: Write> Machine<W> {
     match function {
       Object::Function {
         closure,
+        defaults,
         name: _,
         parameters: params,
         code,
       } => {
-        if params.len() != argument_count {
+        let required =
+          params.len().checked_sub(defaults.len()).ok_or_else(|| {
+            Error::Internal {
+              message: "invalid default argument count".into(),
+            }
+          })?;
+
+        if argument_count < required || argument_count > params.len() {
           return Err(Error::TypeError {
             message: format!(
-              "expected {} arguments, got {argument_count}",
-              params.len()
+              "expected from {required} to {} arguments, got {argument_count}",
+              params.len(),
             ),
           });
         }
+
+        let missing = params.len() - argument_count;
+
+        let arguments = arguments
+          .into_iter()
+          .chain(defaults[defaults.len() - missing..].iter().cloned())
+          .collect::<Vec<_>>();
 
         self.frames.push(
           Frame::builder()
@@ -174,7 +189,9 @@ impl<W: Write> Machine<W> {
       Instruction::LoadFast(index) => self.load_fast(index)?,
       Instruction::LoadFree(index) => self.load_free(index)?,
       Instruction::LoadName(index) => self.load_name(index)?,
-      Instruction::MakeFunction(index) => self.make_function(index)?,
+      Instruction::MakeFunction(index, default_count) => {
+        self.make_function(index, default_count)?;
+      }
       Instruction::Pop => {
         self.frame_mut()?.pop()?;
       }
@@ -288,11 +305,13 @@ impl<W: Write> Machine<W> {
     Ok(())
   }
 
-  fn make_function(&mut self, index: u16) -> Result {
+  fn make_function(&mut self, index: u16, default_count: u8) -> Result {
+    let defaults = self.frame_mut()?.pop_arguments(default_count)?;
     let function = self.frame()?.load_const(index)?;
 
     let Object::Function {
       closure: _,
+      defaults: _,
       name,
       parameters,
       code,
@@ -311,6 +330,7 @@ impl<W: Write> Machine<W> {
 
     self.frame_mut()?.push(Object::Function {
       closure,
+      defaults,
       name,
       parameters,
       code,

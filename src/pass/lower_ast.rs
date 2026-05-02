@@ -255,12 +255,42 @@ impl<'a> LowerAst<'a> {
     }
   }
 
-  fn parameters(node: &ruff_python_ast::Parameters) -> Vec<String> {
+  fn parameters(
+    &self,
+    node: &ruff_python_ast::Parameters,
+  ) -> Result<Vec<FunctionParameter>> {
+    if node.vararg.is_some() {
+      return Err(Error::UnsupportedSyntax {
+        message: "variadic positional parameters".into(),
+      });
+    }
+
+    if !node.kwonlyargs.is_empty() {
+      return Err(Error::UnsupportedSyntax {
+        message: "keyword-only parameters".into(),
+      });
+    }
+
+    if node.kwarg.is_some() {
+      return Err(Error::UnsupportedSyntax {
+        message: "variadic keyword parameters".into(),
+      });
+    }
+
     node
       .posonlyargs
       .iter()
       .chain(node.args.iter())
-      .map(|argument| argument.parameter.name.id.to_string())
+      .map(|argument| {
+        Ok(FunctionParameter {
+          default: argument
+            .default
+            .as_deref()
+            .map(|expr| self.expr(expr))
+            .transpose()?,
+          name: argument.parameter.name.id.to_string(),
+        })
+      })
       .collect()
   }
 
@@ -310,7 +340,7 @@ impl<'a> LowerAst<'a> {
         Ok(Stmt::FunctionDef(FunctionDef {
           body: self.body(&node.body)?,
           name: node.name.id.to_string(),
-          parameters: Self::parameters(&node.parameters),
+          parameters: self.parameters(&node.parameters)?,
         }))
       }
       ruff_python_ast::Stmt::Global(node) => Ok(Stmt::Global(

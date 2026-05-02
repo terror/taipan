@@ -37,7 +37,7 @@ pub enum Instruction {
   LoadFast(u16),
   LoadFree(u16),
   LoadName(u16),
-  MakeFunction(u16),
+  MakeFunction(u16, u8),
   Pop,
   PopJumpIfFalse(u16),
   PopJumpIfTrue(u16),

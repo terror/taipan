@@ -73,6 +73,12 @@ impl SymbolTable {
   }
 
   fn analyze_function_header(&mut self, function: &FunctionDef) -> Result {
+    for parameter in &function.parameters {
+      if let Some(default) = &parameter.default {
+        self.analyze_expr(default)?;
+      }
+    }
+
     self.bind_local(&function.name)
   }
 
@@ -260,9 +266,9 @@ impl SymbolTable {
     self.bind_local(name)
   }
 
-  fn bind_parameters(&mut self, parameters: &[String]) -> Result {
+  fn bind_parameters(&mut self, parameters: &[FunctionParameter]) -> Result {
     for parameter in parameters {
-      self.bind_parameter(parameter)?;
+      self.bind_parameter(&parameter.name)?;
     }
 
     Ok(())
