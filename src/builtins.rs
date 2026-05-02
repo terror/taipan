@@ -70,6 +70,10 @@ fn abs(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
 }
 
 fn bool(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+  if arguments.is_empty() {
+    return Ok(Object::Bool(false));
+  }
+
   if arguments.len() != 1 {
     return Err(Error::TypeError {
       message: "bool() takes exactly one argument".into(),
@@ -80,6 +84,10 @@ fn bool(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
 }
 
 fn float(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+  if arguments.is_empty() {
+    return Ok(Object::Float(0.0));
+  }
+
   if arguments.len() != 1 {
     return Err(Error::TypeError {
       message: "float() takes exactly one argument".into(),
@@ -110,6 +118,10 @@ fn float(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
 }
 
 fn int(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+  if arguments.is_empty() {
+    return Ok(Object::Int(0));
+  }
+
   if arguments.len() != 1 {
     return Err(Error::TypeError {
       message: "int() takes exactly one argument".into(),
@@ -228,6 +240,10 @@ fn r#type(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
 }
 
 fn str(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+  if arguments.is_empty() {
+    return Ok(Object::Str(String::new()));
+  }
+
   if arguments.len() != 1 {
     return Err(Error::TypeError {
       message: "str() takes exactly one argument".into(),
