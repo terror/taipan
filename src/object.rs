@@ -25,8 +25,12 @@ impl Object {
         a.checked_add(*b).map(Self::Int).ok_or(Error::Overflow)
       }
       (Self::Float(a), Self::Float(b)) => Ok(Self::Float(a + b)),
-      (Self::Int(a), Self::Float(b)) => Ok(Self::Float(int_to_float(*a)? + b)),
-      (Self::Float(a), Self::Int(b)) => Ok(Self::Float(a + int_to_float(*b)?)),
+      (Self::Int(a), Self::Float(b)) => {
+        Ok(Self::Float(a.to_f64().ok_or(Error::Overflow)? + b))
+      }
+      (Self::Float(a), Self::Int(b)) => {
+        Ok(Self::Float(a + b.to_f64().ok_or(Error::Overflow)?))
+      }
       (Self::Str(a), Self::Str(b)) => Ok(Self::Str(format!("{a}{b}"))),
       (Self::List(a), Self::List(b)) => {
         let mut result = a.borrow().clone();
@@ -60,10 +64,17 @@ impl Object {
 
   pub(crate) fn binary_div(&self, rhs: &Self) -> Result<Self> {
     let (a, b) = match (self, rhs) {
-      (Self::Int(a), Self::Int(b)) => (int_to_float(*a)?, int_to_float(*b)?),
+      (Self::Int(a), Self::Int(b)) => (
+        a.to_f64().ok_or(Error::Overflow)?,
+        b.to_f64().ok_or(Error::Overflow)?,
+      ),
       (Self::Float(a), Self::Float(b)) => (*a, *b),
-      (Self::Int(a), Self::Float(b)) => (int_to_float(*a)?, *b),
-      (Self::Float(a), Self::Int(b)) => (*a, int_to_float(*b)?),
+      (Self::Int(a), Self::Float(b)) => {
+        (a.to_f64().ok_or(Error::Overflow)?, *b)
+      }
+      (Self::Float(a), Self::Int(b)) => {
+        (*a, b.to_f64().ok_or(Error::Overflow)?)
+      }
       _ => return Err(self.binary_type_error("/", rhs)),
     };
 
@@ -103,7 +114,9 @@ impl Object {
           });
         }
 
-        Ok(Self::Float((int_to_float(*a)? / b).floor()))
+        Ok(Self::Float(
+          (a.to_f64().ok_or(Error::Overflow)? / b).floor(),
+        ))
       }
       (Self::Float(a), Self::Int(b)) => {
         if *b == 0 {
@@ -112,7 +125,9 @@ impl Object {
           });
         }
 
-        Ok(Self::Float((a / int_to_float(*b)?).floor()))
+        Ok(Self::Float(
+          (a / b.to_f64().ok_or(Error::Overflow)?).floor(),
+        ))
       }
       _ => Err(self.binary_type_error("//", rhs)),
     }
@@ -162,7 +177,7 @@ impl Object {
           });
         }
 
-        Ok(Self::Float(int_to_float(*a)? % b))
+        Ok(Self::Float(a.to_f64().ok_or(Error::Overflow)? % b))
       }
       (Self::Float(a), Self::Int(b)) => {
         if *b == 0 {
@@ -171,7 +186,7 @@ impl Object {
           });
         }
 
-        Ok(Self::Float(a % int_to_float(*b)?))
+        Ok(Self::Float(a % b.to_f64().ok_or(Error::Overflow)?))
       }
       _ => Err(self.binary_type_error("%", rhs)),
     }
@@ -183,8 +198,12 @@ impl Object {
         a.checked_mul(*b).map(Self::Int).ok_or(Error::Overflow)
       }
       (Self::Float(a), Self::Float(b)) => Ok(Self::Float(a * b)),
-      (Self::Int(a), Self::Float(b)) => Ok(Self::Float(int_to_float(*a)? * b)),
-      (Self::Float(a), Self::Int(b)) => Ok(Self::Float(a * int_to_float(*b)?)),
+      (Self::Int(a), Self::Float(b)) => {
+        Ok(Self::Float(a.to_f64().ok_or(Error::Overflow)? * b))
+      }
+      (Self::Float(a), Self::Int(b)) => {
+        Ok(Self::Float(a * b.to_f64().ok_or(Error::Overflow)?))
+      }
       (Self::Str(string), Self::Int(count))
       | (Self::Int(count), Self::Str(string)) => {
         let count = if *count <= 0 {
@@ -244,7 +263,11 @@ impl Object {
     match (self, rhs) {
       (Self::Int(a), Self::Int(b)) => {
         if *b < 0 {
-          Ok(Self::Float(int_to_float(*a)?.powi(pow_exponent(*b)?)))
+          Ok(Self::Float(
+            a.to_f64()
+              .ok_or(Error::Overflow)?
+              .powi(i32::try_from(*b).map_err(|_| Error::Overflow)?),
+          ))
         } else {
           a.checked_pow(u32::try_from(*b).map_err(|_| Error::Overflow)?)
             .map(Self::Int)
@@ -253,11 +276,11 @@ impl Object {
       }
       (Self::Float(a), Self::Float(b)) => Ok(Self::Float(a.powf(*b))),
       (Self::Int(a), Self::Float(b)) => {
-        Ok(Self::Float(int_to_float(*a)?.powf(*b)))
+        Ok(Self::Float(a.to_f64().ok_or(Error::Overflow)?.powf(*b)))
       }
-      (Self::Float(a), Self::Int(b)) => {
-        Ok(Self::Float(a.powi(pow_exponent(*b)?)))
-      }
+      (Self::Float(a), Self::Int(b)) => Ok(Self::Float(
+        a.powi(i32::try_from(*b).map_err(|_| Error::Overflow)?),
+      )),
       _ => Err(self.binary_type_error("**", rhs)),
     }
   }
@@ -289,20 +312,22 @@ impl Object {
         a.checked_sub(*b).map(Self::Int).ok_or(Error::Overflow)
       }
       (Self::Float(a), Self::Float(b)) => Ok(Self::Float(a - b)),
-      (Self::Int(a), Self::Float(b)) => Ok(Self::Float(int_to_float(*a)? - b)),
-      (Self::Float(a), Self::Int(b)) => Ok(Self::Float(a - int_to_float(*b)?)),
+      (Self::Int(a), Self::Float(b)) => {
+        Ok(Self::Float(a.to_f64().ok_or(Error::Overflow)? - b))
+      }
+      (Self::Float(a), Self::Int(b)) => {
+        Ok(Self::Float(a - b.to_f64().ok_or(Error::Overflow)?))
+      }
       _ => Err(self.binary_type_error("-", rhs)),
     }
   }
 
   pub(crate) fn binary_subscript(&self, rhs: &Self) -> Result<Self> {
-    let index = rhs.index()?;
-
     match self {
       Self::List(list) => {
         let list = list.borrow();
         list
-          .get(index_for_len(index, list.len())?)
+          .get(rhs.index(list.len())?)
           .cloned()
           .ok_or_else(|| Error::Index {
             message: "list index out of range".into(),
@@ -310,7 +335,7 @@ impl Object {
       }
       Self::Str(string) => string
         .chars()
-        .nth(index_for_len(index, string.chars().count())?)
+        .nth(rhs.index(string.chars().count())?)
         .map(|c| Self::Str(c.to_string()))
         .ok_or_else(|| Error::Index {
           message: "string index out of range".into(),
@@ -362,12 +387,25 @@ impl Object {
     cmp: fn(f64, f64) -> bool,
   ) -> Result<Self> {
     let (a, b) = match (self, rhs) {
-      (Self::Int(a), Self::Int(b)) => (int_to_float(*a)?, int_to_float(*b)?),
+      (Self::Int(a), Self::Int(b)) => (
+        a.to_f64().ok_or(Error::Overflow)?,
+        b.to_f64().ok_or(Error::Overflow)?,
+      ),
       (Self::Float(a), Self::Float(b)) => (*a, *b),
-      (Self::Int(a), Self::Float(b)) => (int_to_float(*a)?, *b),
-      (Self::Float(a), Self::Int(b)) => (*a, int_to_float(*b)?),
+      (Self::Int(a), Self::Float(b)) => {
+        (a.to_f64().ok_or(Error::Overflow)?, *b)
+      }
+      (Self::Float(a), Self::Int(b)) => {
+        (*a, b.to_f64().ok_or(Error::Overflow)?)
+      }
       (Self::Str(a), Self::Str(b)) => {
-        return Ok(Self::Bool(cmp_str(a, b, operator)));
+        return Ok(Self::Bool(match operator {
+          "<" => a < b,
+          "<=" => a <= b,
+          ">" => a > b,
+          ">=" => a >= b,
+          _ => unreachable!(),
+        }));
       }
       _ => {
         return Err(Error::TypeError {
@@ -383,16 +421,26 @@ impl Object {
     Ok(Self::Bool(cmp(a, b)))
   }
 
-  fn index(&self) -> Result<i64> {
-    match self {
-      Self::Int(index) => Ok(*index),
+  fn index(&self, len: usize) -> Result<usize> {
+    let index = match self {
+      Self::Int(index) => *index,
       _ => Err(Error::TypeError {
         message: format!(
           "list indices must be integers, not {}",
           self.type_name()
         ),
-      }),
+      })?,
+    };
+
+    let len = i64::try_from(len).map_err(|_| Error::Overflow)?;
+
+    let index = if index < 0 { len + index } else { index };
+
+    if index < 0 {
+      return usize::try_from(len).map_err(|_| Error::Overflow);
     }
+
+    usize::try_from(index).map_err(|_| Error::Overflow)
   }
 
   pub(crate) fn is_truthy(&self) -> bool {
@@ -431,13 +479,11 @@ impl Object {
   }
 
   pub(crate) fn store_subscript(&self, index: &Self, value: Self) -> Result {
-    let index = index.index()?;
-
     match self {
       Self::List(list) => {
         let mut list = list.borrow_mut();
 
-        let index = index_for_len(index, list.len())?;
+        let index = index.index(list.len())?;
 
         let Some(element) = list.get_mut(index) else {
           return Err(Error::Index {
@@ -512,36 +558,6 @@ impl Object {
       }),
     }
   }
-}
-
-fn cmp_str(a: &str, b: &str, operator: &str) -> bool {
-  match operator {
-    "<" => a < b,
-    "<=" => a <= b,
-    ">" => a > b,
-    ">=" => a >= b,
-    _ => unreachable!(),
-  }
-}
-
-fn int_to_float(int: i64) -> Result<f64> {
-  int.to_f64().ok_or(Error::Overflow)
-}
-
-fn index_for_len(index: i64, len: usize) -> Result<usize> {
-  let len = i64::try_from(len).map_err(|_| Error::Overflow)?;
-
-  let index = if index < 0 { len + index } else { index };
-
-  if index < 0 {
-    return usize::try_from(len).map_err(|_| Error::Overflow);
-  }
-
-  usize::try_from(index).map_err(|_| Error::Overflow)
-}
-
-fn pow_exponent(int: i64) -> Result<i32> {
-  i32::try_from(int).map_err(|_| Error::Overflow)
 }
 
 impl Display for Object {
