@@ -1,17 +1,50 @@
 use super::*;
 
 pub(crate) const BUILTINS: &[Builtin] = &[
-  Builtin::Function(Function::new("abs", abs)),
-  Builtin::Function(Function::new("bool", bool)),
-  Builtin::Function(Function::new("float", float)),
-  Builtin::Function(Function::new("int", int)),
-  Builtin::Function(Function::new("len", len)),
-  Builtin::Function(Function::new("max", max)),
-  Builtin::Function(Function::new("min", min)),
-  Builtin::Function(Function::new("print", print)),
-  Builtin::Function(Function::new("repr", repr)),
-  Builtin::Function(Function::new("str", str)),
-  Builtin::Function(Function::new("type", r#type)),
+  Builtin::Function {
+    function: abs,
+    name: "abs",
+  },
+  Builtin::Function {
+    function: bool,
+    name: "bool",
+  },
+  Builtin::Function {
+    function: float,
+    name: "float",
+  },
+  Builtin::Function {
+    function: int,
+    name: "int",
+  },
+  Builtin::Function {
+    function: len,
+    name: "len",
+  },
+  Builtin::Function {
+    function: max,
+    name: "max",
+  },
+  Builtin::Function {
+    function: min,
+    name: "min",
+  },
+  Builtin::Function {
+    function: print,
+    name: "print",
+  },
+  Builtin::Function {
+    function: repr,
+    name: "repr",
+  },
+  Builtin::Function {
+    function: str,
+    name: "str",
+  },
+  Builtin::Function {
+    function: r#type,
+    name: "type",
+  },
 ];
 
 fn abs(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
