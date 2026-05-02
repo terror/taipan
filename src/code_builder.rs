@@ -30,6 +30,17 @@ impl CodeBuilder {
     Ok(index)
   }
 
+  pub(crate) fn add_keyword_names(&mut self, names: &[String]) -> Result<u16> {
+    let index = Self::index(
+      self.code.keyword_names.len(),
+      "keyword name table overflow",
+    )?;
+
+    self.code.keyword_names.push(names.to_vec());
+
+    Ok(index)
+  }
+
   pub(crate) fn add_local(&mut self, name: &str) -> Result<u16> {
     if let Some(index) = self.code.locals.iter().position(|n| n == name) {
       return Self::index(index, "local table overflow");

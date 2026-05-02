@@ -116,6 +116,17 @@ impl Frame {
     Ok(())
   }
 
+  pub(crate) fn keyword_names(&self, index: u16) -> Result<Vec<String>> {
+    self
+      .code_ref()
+      .keyword_names
+      .get(usize::from(index))
+      .cloned()
+      .ok_or_else(|| Error::Internal {
+        message: "invalid keyword names index".into(),
+      })
+  }
+
   pub(crate) fn load_const(&self, index: u16) -> Result<Object> {
     self
       .code_ref()

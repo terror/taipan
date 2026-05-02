@@ -117,20 +117,45 @@ impl Compiler {
     self.code_mut().emit_jump(control_flow.break_label)
   }
 
-  fn compile_call(&mut self, function: &Expr, arguments: &[Expr]) -> Result {
+  fn compile_call(
+    &mut self,
+    function: &Expr,
+    arguments: &[Expr],
+    keywords: &[KeywordArgument],
+  ) -> Result {
     self.compile_expr(function)?;
-
-    let argc = arguments.len();
 
     for argument in arguments {
       self.compile_expr(argument)?;
     }
 
-    let argc = u8::try_from(argc).map_err(|_| Error::Compile {
+    for keyword in keywords {
+      self.compile_expr(&keyword.value)?;
+    }
+
+    let argc = u8::try_from(arguments.len()).map_err(|_| Error::Compile {
       message: "too many arguments".into(),
     })?;
 
-    self.code_mut().emit(Instruction::CallFunction(argc));
+    if keywords.is_empty() {
+      self.code_mut().emit(Instruction::CallFunction(argc));
+    } else {
+      u8::try_from(keywords.len()).map_err(|_| Error::Compile {
+        message: "too many keyword arguments".into(),
+      })?;
+
+      let keyword_names = keywords
+        .iter()
+        .map(|keyword| keyword.name.clone())
+        .collect::<Vec<_>>();
+
+      let keyword_names = self.code_mut().add_keyword_names(&keyword_names)?;
+
+      self.code_mut().emit(Instruction::CallFunctionKeywords {
+        keyword_names,
+        positional_count: argc,
+      });
+    }
 
     Ok(())
   }
@@ -188,7 +213,8 @@ impl Compiler {
       Expr::Call {
         arguments,
         function,
-      } => self.compile_call(function, arguments),
+        keywords,
+      } => self.compile_call(function, arguments, keywords),
       Expr::Compare { lhs, operator, rhs } => {
         self.compile_compare(lhs, *operator, rhs)
       }
@@ -372,9 +398,10 @@ impl Compiler {
         message: "too many default arguments".into(),
       })?;
 
-    self
-      .code_mut()
-      .emit(Instruction::MakeFunction(const_index, default_count));
+    self.code_mut().emit(Instruction::MakeFunction {
+      default_count,
+      function: const_index,
+    });
 
     let instruction = self.scopes.resolve_store(&function.name)?;
 
@@ -652,6 +679,7 @@ mod tests {
     constants: Vec<Object>,
     freevars: Vec<&'static str>,
     instructions: Vec<Instruction>,
+    keyword_names: Vec<Vec<&'static str>>,
     locals: Vec<&'static str>,
     names: Vec<&'static str>,
     source: &'static str,
@@ -663,6 +691,11 @@ mod tests {
         constants: self.constants,
         freevars: self.freevars.into_iter().map(str::to_owned).collect(),
         instructions: self.instructions,
+        keyword_names: self
+          .keyword_names
+          .into_iter()
+          .map(|names| names.into_iter().map(str::to_owned).collect())
+          .collect(),
         locals: self.locals.into_iter().map(str::to_owned).collect(),
         names: self.names.into_iter().map(str::to_owned).collect(),
       }
@@ -682,6 +715,17 @@ mod tests {
     fn instructions(self, instructions: &[Instruction]) -> Self {
       Self {
         instructions: instructions.to_vec(),
+        ..self
+      }
+    }
+
+    fn keyword_names(self, names: &[&'static str]) -> Self {
+      Self {
+        keyword_names: self
+          .keyword_names
+          .into_iter()
+          .chain([names.to_vec()])
+          .collect(),
         ..self
       }
     }
@@ -894,6 +938,28 @@ mod tests {
   }
 
   #[test]
+  fn function_call_keyword_arguments() {
+    Test::new(indoc! {
+      "
+      foo(bar, baz=qux)
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::LoadName(1),
+      Instruction::LoadName(2),
+      Instruction::CallFunctionKeywords {
+        keyword_names: 0,
+        positional_count: 1,
+      },
+      Instruction::Pop,
+    ])
+    .keyword_names(&["baz"])
+    .names(&["foo", "bar", "qux"])
+    .run();
+  }
+
+  #[test]
   fn f_string() {
     Test::new(indoc! {
       r#"
@@ -1027,7 +1093,13 @@ mod tests {
         return bar
       "
     })
-    .instructions(&[Instruction::MakeFunction(0, 0), Instruction::StoreName(0)])
+    .instructions(&[
+      Instruction::MakeFunction {
+        default_count: 0,
+        function: 0,
+      },
+      Instruction::StoreName(0),
+    ])
     .constant(Object::Function {
       closure: Vec::new(),
       defaults: Vec::new(),
@@ -1052,7 +1124,10 @@ mod tests {
     })
     .instructions(&[
       Instruction::LoadConst(0),
-      Instruction::MakeFunction(1, 1),
+      Instruction::MakeFunction {
+        default_count: 1,
+        function: 1,
+      },
       Instruction::StoreName(0),
     ])
     .constant(Object::Int(1))
@@ -1078,7 +1153,13 @@ mod tests {
         return foo - bar
       "
     })
-    .instructions(&[Instruction::MakeFunction(0, 0), Instruction::StoreName(0)])
+    .instructions(&[
+      Instruction::MakeFunction {
+        default_count: 0,
+        function: 0,
+      },
+      Instruction::StoreName(0),
+    ])
     .constant(Object::Function {
       closure: Vec::new(),
       defaults: Vec::new(),
@@ -1107,7 +1188,13 @@ mod tests {
         bar = 1
       "
     })
-    .instructions(&[Instruction::MakeFunction(0, 0), Instruction::StoreName(0)])
+    .instructions(&[
+      Instruction::MakeFunction {
+        default_count: 0,
+        function: 0,
+      },
+      Instruction::StoreName(0),
+    ])
     .constant(Object::Function {
       closure: Vec::new(),
       defaults: Vec::new(),
@@ -1138,7 +1225,13 @@ mod tests {
         bar = 1
       "
     })
-    .instructions(&[Instruction::MakeFunction(0, 0), Instruction::StoreName(0)])
+    .instructions(&[
+      Instruction::MakeFunction {
+        default_count: 0,
+        function: 0,
+      },
+      Instruction::StoreName(0),
+    ])
     .constant(Object::Function {
       closure: Vec::new(),
       defaults: Vec::new(),
@@ -1266,7 +1359,13 @@ mod tests {
           return 1
       "
     })
-    .instructions(&[Instruction::MakeFunction(0, 0), Instruction::StoreName(0)])
+    .instructions(&[
+      Instruction::MakeFunction {
+        default_count: 0,
+        function: 0,
+      },
+      Instruction::StoreName(0),
+    ])
     .constant(Object::Function {
       closure: Vec::new(),
       defaults: Vec::new(),
@@ -1274,7 +1373,10 @@ mod tests {
       parameters: Vec::new(),
       code: Test::default()
         .instructions(&[
-          Instruction::MakeFunction(0, 0),
+          Instruction::MakeFunction {
+            default_count: 0,
+            function: 0,
+          },
           Instruction::StoreFast(0),
           Instruction::LoadConst(1),
           Instruction::Return,

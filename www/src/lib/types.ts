@@ -20,6 +20,13 @@ export type Instruction =
   | { opcode: 'buildString'; argument: number }
   | { opcode: 'buildTuple'; argument: number }
   | { opcode: 'callFunction'; argument: number }
+  | {
+      opcode: 'callFunctionKeywords';
+      argument: {
+        keywordNames: number;
+        positionalCount: number;
+      };
+    }
   | { opcode: 'compareEq'; argument?: undefined }
   | { opcode: 'compareGe'; argument?: undefined }
   | { opcode: 'compareGt'; argument?: undefined }
@@ -36,7 +43,13 @@ export type Instruction =
   | { opcode: 'loadFast'; argument: number }
   | { opcode: 'loadFree'; argument: number }
   | { opcode: 'loadName'; argument: number }
-  | { opcode: 'makeFunction'; argument: number }
+  | {
+      opcode: 'makeFunction';
+      argument: {
+        defaultCount: number;
+        function: number;
+      };
+    }
   | { opcode: 'pop'; argument?: undefined }
   | { opcode: 'popJumpIfFalse'; argument: number }
   | { opcode: 'popJumpIfTrue'; argument: number }
@@ -45,15 +58,16 @@ export type Instruction =
   | { opcode: 'storeFree'; argument: number }
   | { opcode: 'storeName'; argument: number }
   | { opcode: 'storeSubscript'; argument?: undefined }
-  | { opcode: 'unpackSequence'; argument: number }
   | { opcode: 'unaryInvert'; argument?: undefined }
   | { opcode: 'unaryNeg'; argument?: undefined }
   | { opcode: 'unaryNot'; argument?: undefined }
-  | { opcode: 'unaryPos'; argument?: undefined };
+  | { opcode: 'unaryPos'; argument?: undefined }
+  | { opcode: 'unpackSequence'; argument: number };
 
 export interface Code {
   freevars: string[];
   instructions: Instruction[];
+  keyword_names: string[][];
   locals: string[];
   names: string[];
 }

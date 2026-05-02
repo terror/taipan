@@ -47,6 +47,7 @@ pub(crate) enum Expr {
   Call {
     arguments: Vec<Expr>,
     function: Box<Expr>,
+    keywords: Vec<KeywordArgument>,
   },
   Compare {
     lhs: Box<Expr>,
@@ -87,6 +88,12 @@ pub(crate) struct FunctionDef {
 pub(crate) struct FunctionParameter {
   pub(crate) default: Option<Expr>,
   pub(crate) name: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct KeywordArgument {
+  pub(crate) name: String,
+  pub(crate) value: Expr,
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -30,12 +30,6 @@ impl<'a> LowerAst<'a> {
   }
 
   fn call(&self, node: &ruff_python_ast::ExprCall) -> Result<Expr> {
-    if !node.arguments.keywords.is_empty() {
-      return Err(Error::UnsupportedSyntax {
-        message: "keyword arguments".into(),
-      });
-    }
-
     Ok(Expr::Call {
       arguments: node
         .arguments
@@ -44,6 +38,24 @@ impl<'a> LowerAst<'a> {
         .map(|expr| self.expr(expr))
         .collect::<Result<Vec<_>>>()?,
       function: Box::new(self.expr(&node.func)?),
+      keywords: node
+        .arguments
+        .keywords
+        .iter()
+        .map(|keyword| {
+          Ok(KeywordArgument {
+            name: keyword
+              .arg
+              .as_ref()
+              .ok_or_else(|| Error::UnsupportedSyntax {
+                message: "variadic keyword arguments".into(),
+              })?
+              .id
+              .to_string(),
+            value: self.expr(&keyword.value)?,
+          })
+        })
+        .collect::<Result<Vec<_>>>()?,
     })
   }
 

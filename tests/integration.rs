@@ -492,6 +492,23 @@ fn function_default_arguments() -> Result {
 }
 
 #[test]
+fn function_keyword_arguments() -> Result {
+  Test::new()?
+    .program(
+      "
+      def foo(bar, baz=2, qux=3):
+        return bar + baz * 10 + qux * 100
+
+      print(foo(1, qux=4))
+      print(foo(qux=4, bar=1))
+      print(foo(1, qux=4, baz=5))
+      ",
+    )
+    .expected_stdout(Exact("421\n421\n451\n"))
+    .run()
+}
+
+#[test]
 fn for_loop() -> Result {
   Test::new()?
     .program(
