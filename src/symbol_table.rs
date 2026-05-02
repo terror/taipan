@@ -51,7 +51,16 @@ impl SymbolTable {
         self.analyze_expr(body)?;
         self.analyze_expr(orelse)?;
       }
+      Expr::List(elements) => {
+        for element in elements {
+          self.analyze_expr(element)?;
+        }
+      }
       Expr::Name(name) => self.bind_use(name),
+      Expr::Subscript { slice, value } => {
+        self.analyze_expr(value)?;
+        self.analyze_expr(slice)?;
+      }
       Expr::Unary { operand, .. } => self.analyze_expr(operand)?,
       Expr::Bool(_)
       | Expr::Float(_)
@@ -251,6 +260,10 @@ impl SymbolTable {
   fn bind_target(&mut self, target: &Expr) -> Result {
     match target {
       Expr::Name(name) => self.bind_local(name),
+      Expr::Subscript { slice, value } => {
+        self.analyze_expr(value)?;
+        self.analyze_expr(slice)
+      }
       _ => Err(Error::Compile {
         message: "invalid assignment target".into(),
       }),

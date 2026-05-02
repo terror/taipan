@@ -12,6 +12,7 @@ pub enum Object {
     parameters: Vec<String>,
   },
   Int(i64),
+  List(Rc<RefCell<Vec<Object>>>),
   #[default]
   None,
   Str(String),
@@ -27,6 +28,11 @@ impl Object {
       (Self::Int(a), Self::Float(b)) => Ok(Self::Float(int_to_float(*a)? + b)),
       (Self::Float(a), Self::Int(b)) => Ok(Self::Float(a + int_to_float(*b)?)),
       (Self::Str(a), Self::Str(b)) => Ok(Self::Str(format!("{a}{b}"))),
+      (Self::List(a), Self::List(b)) => {
+        let mut result = a.borrow().clone();
+        result.extend(b.borrow().iter().cloned());
+        Ok(Self::List(Rc::new(RefCell::new(result))))
+      }
       _ => Err(self.binary_type_error("+", rhs)),
     }
   }
@@ -206,6 +212,30 @@ impl Object {
 
         Ok(Self::Str(result))
       }
+      (Self::List(list), Self::Int(count))
+      | (Self::Int(count), Self::List(list)) => {
+        let count = if *count <= 0 {
+          0
+        } else {
+          usize::try_from(*count).map_err(|_| Error::Overflow)?
+        };
+
+        let list = list.borrow();
+
+        let capacity = list.len().checked_mul(count).ok_or(Error::Overflow)?;
+
+        let mut result = Vec::new();
+
+        result
+          .try_reserve_exact(capacity)
+          .map_err(|_| Error::Overflow)?;
+
+        for _ in 0..count {
+          result.extend(list.iter().cloned());
+        }
+
+        Ok(Self::List(Rc::new(RefCell::new(result))))
+      }
       _ => Err(self.binary_type_error("*", rhs)),
     }
   }
@@ -262,6 +292,32 @@ impl Object {
       (Self::Int(a), Self::Float(b)) => Ok(Self::Float(int_to_float(*a)? - b)),
       (Self::Float(a), Self::Int(b)) => Ok(Self::Float(a - int_to_float(*b)?)),
       _ => Err(self.binary_type_error("-", rhs)),
+    }
+  }
+
+  pub(crate) fn binary_subscript(&self, rhs: &Self) -> Result<Self> {
+    let index = rhs.index()?;
+
+    match self {
+      Self::List(list) => {
+        let list = list.borrow();
+        list
+          .get(index_for_len(index, list.len())?)
+          .cloned()
+          .ok_or_else(|| Error::Index {
+            message: "list index out of range".into(),
+          })
+      }
+      Self::Str(string) => string
+        .chars()
+        .nth(index_for_len(index, string.chars().count())?)
+        .map(|c| Self::Str(c.to_string()))
+        .ok_or_else(|| Error::Index {
+          message: "string index out of range".into(),
+        }),
+      _ => Err(Error::TypeError {
+        message: format!("'{}' object is not subscriptable", self.type_name()),
+      }),
     }
   }
 
@@ -327,14 +383,77 @@ impl Object {
     Ok(Self::Bool(cmp(a, b)))
   }
 
+  fn index(&self) -> Result<i64> {
+    match self {
+      Self::Int(index) => Ok(*index),
+      _ => Err(Error::TypeError {
+        message: format!(
+          "list indices must be integers, not {}",
+          self.type_name()
+        ),
+      }),
+    }
+  }
+
   pub(crate) fn is_truthy(&self) -> bool {
     match self {
       Self::Bool(b) => *b,
       Self::Builtin(_) | Self::Function { .. } => true,
       Self::Float(f) => *f != 0.0,
       Self::Int(i) => *i != 0,
+      Self::List(list) => !list.borrow().is_empty(),
       Self::None => false,
       Self::Str(s) => !s.is_empty(),
+    }
+  }
+
+  pub(crate) fn len(&self) -> Result<Self> {
+    let len = match self {
+      Self::List(list) => list.borrow().len(),
+      Self::Str(s) => s.len(),
+      _ => {
+        return Err(Error::TypeError {
+          message: format!(
+            "object of type '{}' has no len()",
+            self.type_name()
+          ),
+        });
+      }
+    };
+
+    i64::try_from(len)
+      .map(Self::Int)
+      .map_err(|_| Error::Overflow)
+  }
+
+  pub(crate) fn list(elements: Vec<Object>) -> Self {
+    Self::List(Rc::new(RefCell::new(elements)))
+  }
+
+  pub(crate) fn store_subscript(&self, index: &Self, value: Self) -> Result {
+    let index = index.index()?;
+
+    match self {
+      Self::List(list) => {
+        let mut list = list.borrow_mut();
+        let index = index_for_len(index, list.len())?;
+
+        let Some(element) = list.get_mut(index) else {
+          return Err(Error::Index {
+            message: "list assignment index out of range".into(),
+          });
+        };
+
+        *element = value;
+
+        Ok(())
+      }
+      _ => Err(Error::TypeError {
+        message: format!(
+          "'{}' object does not support item assignment",
+          self.type_name()
+        ),
+      }),
     }
   }
 
@@ -345,6 +464,7 @@ impl Object {
       Self::Float(_) => "float",
       Self::Function { .. } => "function",
       Self::Int(_) => "int",
+      Self::List(_) => "list",
       Self::None => "NoneType",
       Self::Str(_) => "str",
     }
@@ -407,6 +527,18 @@ fn int_to_float(int: i64) -> Result<f64> {
   int.to_f64().ok_or(Error::Overflow)
 }
 
+fn index_for_len(index: i64, len: usize) -> Result<usize> {
+  let len = i64::try_from(len).map_err(|_| Error::Overflow)?;
+
+  let index = if index < 0 { len + index } else { index };
+
+  if index < 0 {
+    return usize::try_from(len).map_err(|_| Error::Overflow);
+  }
+
+  usize::try_from(index).map_err(|_| Error::Overflow)
+}
+
 fn pow_exponent(int: i64) -> Result<i32> {
   i32::try_from(int).map_err(|_| Error::Overflow)
 }
@@ -428,6 +560,19 @@ impl Display for Object {
       }
       Self::Function { name, .. } => write!(f, "<function {name}>"),
       Self::Int(int) => write!(f, "{int}"),
+      Self::List(list) => {
+        write!(f, "[")?;
+
+        for (index, object) in list.borrow().iter().enumerate() {
+          if index > 0 {
+            write!(f, ", ")?;
+          }
+
+          write!(f, "{object}")?;
+        }
+
+        write!(f, "]")
+      }
       Self::None => write!(f, "None"),
       Self::Str(string) => write!(f, "{string}"),
     }
@@ -456,67 +601,12 @@ impl PartialEq for Object {
           parameters: b_params,
         },
       ) => a_name == b_name && a_params == b_params && a_code == b_code,
+      (Self::List(a), Self::List(b)) => {
+        Rc::ptr_eq(a, b) || *a.borrow() == *b.borrow()
+      }
       (Self::Str(a), Self::Str(b)) => a == b,
       (Self::None, Self::None) => true,
       _ => false,
-    }
-  }
-}
-
-impl Serialize for Object {
-  fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-  where
-    S: Serializer,
-  {
-    match self {
-      Self::Bool(value) => {
-        let mut state = serializer.serialize_struct("Object", 2)?;
-        state.serialize_field("type", "bool")?;
-        state.serialize_field("value", value)?;
-        state.end()
-      }
-      Self::Builtin(builtin) => {
-        let mut state = serializer.serialize_struct("Object", 2)?;
-        state.serialize_field("type", "builtin")?;
-        state.serialize_field("name", builtin.name())?;
-        state.end()
-      }
-      Self::Float(value) => {
-        let mut state = serializer.serialize_struct("Object", 2)?;
-        state.serialize_field("type", "float")?;
-        state.serialize_field("value", value)?;
-        state.end()
-      }
-      Self::Function {
-        closure: _,
-        code,
-        name,
-        parameters,
-      } => {
-        let mut state = serializer.serialize_struct("Object", 4)?;
-        state.serialize_field("type", "function")?;
-        state.serialize_field("name", name)?;
-        state.serialize_field("parameters", parameters)?;
-        state.serialize_field("bytecode", code.as_ref())?;
-        state.end()
-      }
-      Self::Int(value) => {
-        let mut state = serializer.serialize_struct("Object", 2)?;
-        state.serialize_field("type", "int")?;
-        state.serialize_field("value", value)?;
-        state.end()
-      }
-      Self::None => {
-        let mut state = serializer.serialize_struct("Object", 1)?;
-        state.serialize_field("type", "none")?;
-        state.end()
-      }
-      Self::Str(value) => {
-        let mut state = serializer.serialize_struct("Object", 2)?;
-        state.serialize_field("type", "string")?;
-        state.serialize_field("value", value)?;
-        state.end()
-      }
     }
   }
 }

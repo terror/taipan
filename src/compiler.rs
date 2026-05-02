@@ -218,6 +218,20 @@ impl Compiler {
         Ok(())
       }
       Expr::Int(value) => self.emit_const(Object::Int(*value)),
+      Expr::List(elements) => {
+        for element in elements {
+          self.compile_expr(element)?;
+        }
+
+        let count =
+          u16::try_from(elements.len()).map_err(|_| Error::Compile {
+            message: "too many list elements".into(),
+          })?;
+
+        self.code_mut().emit(Instruction::BuildList(count));
+
+        Ok(())
+      }
       Expr::Name(name) => {
         let instruction = self.scopes.resolve_load(name)?;
         self.code_mut().emit(instruction);
@@ -225,6 +239,12 @@ impl Compiler {
       }
       Expr::None => self.emit_none(),
       Expr::String(value) => self.emit_const(Object::Str(value.clone())),
+      Expr::Subscript { slice, value } => {
+        self.compile_expr(value)?;
+        self.compile_expr(slice)?;
+        self.code_mut().emit(Instruction::BinarySubscript);
+        Ok(())
+      }
       Expr::Unary { operand, operator } => {
         self.compile_expr(operand)?;
 
@@ -340,6 +360,12 @@ impl Compiler {
         self.code_mut().emit(instruction);
         Ok(())
       }
+      Expr::Subscript { slice, value } => {
+        self.compile_expr(value)?;
+        self.compile_expr(slice)?;
+        self.code_mut().emit(Instruction::BinarySubscript);
+        Ok(())
+      }
       _ => Err(Error::Compile {
         message: "invalid assignment target".into(),
       }),
@@ -444,6 +470,12 @@ impl Compiler {
       Expr::Name(name) => {
         let instruction = self.scopes.resolve_store(name)?;
         self.code_mut().emit(instruction);
+        Ok(())
+      }
+      Expr::Subscript { slice, value } => {
+        self.compile_expr(value)?;
+        self.compile_expr(slice)?;
+        self.code_mut().emit(Instruction::StoreSubscript);
         Ok(())
       }
       _ => Err(Error::Compile {
@@ -751,6 +783,42 @@ mod tests {
     .constant(Object::Int(1))
     .constant(Object::Int(2))
     .names(&["bar"])
+    .run();
+  }
+
+  #[test]
+  fn list_literal() {
+    Test::new(indoc! {
+      "
+      [foo, 1]
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::LoadConst(0),
+      Instruction::BuildList(2),
+      Instruction::Pop,
+    ])
+    .constant(Object::Int(1))
+    .names(&["foo"])
+    .run();
+  }
+
+  #[test]
+  fn subscript() {
+    Test::new(indoc! {
+      "
+      foo[0]
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::LoadConst(0),
+      Instruction::BinarySubscript,
+      Instruction::Pop,
+    ])
+    .constant(Object::Int(0))
+    .names(&["foo"])
     .run();
   }
 

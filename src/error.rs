@@ -5,6 +5,8 @@ use super::*;
 pub enum Error {
   #[snafu(display("CompileError: {message}"))]
   Compile { message: String },
+  #[snafu(display("IndexError: {message}"))]
+  Index { message: String },
   #[snafu(display("InternalError: {message}"))]
   Internal { message: String },
   #[snafu(display("IOError: {source}"))]

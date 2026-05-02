@@ -22,7 +22,7 @@ use {
   scope::Scope,
   scope_kind::ScopeKind,
   scope_stack::ScopeStack,
-  serde::{Serialize, Serializer, ser::SerializeStruct},
+  serde::Serialize,
   snafu::Snafu,
   std::{
     cell::RefCell,
