@@ -388,6 +388,75 @@ fn closure_capture() -> Result {
 }
 
 #[test]
+fn dictionaries() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      foo = {"foo": 1, "bar": 2}
+      print(foo)
+      print(foo["foo"])
+      foo["foo"] = 3
+      foo["baz"] = 4
+      print(foo)
+      print(len(foo))
+      print(bool({}))
+      print(bool({"foo": 1}))
+      print("foo" in foo)
+      print(1 in foo)
+      print({"foo": 1, "bar": 2} == {"bar": 2, "foo": 1})
+      print({"foo": 1} == {"foo": 2})
+      "#,
+    )
+    .expected_stdout(Exact(
+      "{foo: 1, bar: 2}\n1\n{foo: 3, bar: 2, baz: 4}\n3\nFalse\nTrue\nTrue\nFalse\nTrue\nFalse\n",
+    ))
+    .run()
+}
+
+#[test]
+fn dictionary_duplicate_keys() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      foo = {"foo": 1, "foo": 2}
+      print(foo)
+      print(len(foo))
+      "#,
+    )
+    .expected_stdout(Exact("{foo: 2}\n1\n"))
+    .run()
+}
+
+#[test]
+fn dictionary_iteration() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      foo, bar = {"foo": 1, "bar": 2}
+      print(foo)
+      print(bar)
+      for baz in {"foo": 1, "bar": 2}:
+        print(baz)
+      "#,
+    )
+    .expected_stdout(Exact("foo\nbar\nfoo\nbar\n"))
+    .run()
+}
+
+#[test]
+fn dictionary_missing_key() -> Result {
+  Test::new()?
+    .program(
+      r#"
+      {"foo": 1}["bar"]
+      "#,
+    )
+    .expected_status(1)
+    .expected_stderr(Contains("KeyError: bar"))
+    .run()
+}
+
+#[test]
 fn display_values() -> Result {
   Test::new()?
     .program(

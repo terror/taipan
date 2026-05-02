@@ -1,7 +1,8 @@
 use {
   ast::{
-    BinaryOperator, BoolOperator, CompareOperator, Expr, FunctionDef,
-    FunctionParameter, KeywordArgument, Module, Stmt, UnaryOperator,
+    BinaryOperator, BoolOperator, CompareOperator, DictEntry, Expr,
+    FunctionDef, FunctionParameter, KeywordArgument, Module, Stmt,
+    UnaryOperator,
   },
   builtins::BUILTINS,
   code_builder::CodeBuilder,

@@ -198,6 +198,40 @@ impl Compiler {
     self.code_mut().emit_jump(control_flow.continue_label)
   }
 
+  fn compile_dict(&mut self, entries: &[DictEntry]) -> Result {
+    for entry in entries {
+      self.compile_expr(&entry.key)?;
+      self.compile_expr(&entry.value)?;
+    }
+
+    let count = u16::try_from(entries.len()).map_err(|_| Error::Compile {
+      message: "too many dict entries".into(),
+    })?;
+
+    self.code_mut().emit(Instruction::BuildDict(count));
+
+    Ok(())
+  }
+
+  fn compile_elements(
+    &mut self,
+    elements: &[Expr],
+    too_many_message: &str,
+    instruction: fn(u16) -> Instruction,
+  ) -> Result {
+    for element in elements {
+      self.compile_expr(element)?;
+    }
+
+    let count = u16::try_from(elements.len()).map_err(|_| Error::Compile {
+      message: too_many_message.into(),
+    })?;
+
+    self.code_mut().emit(instruction(count));
+
+    Ok(())
+  }
+
   fn compile_expr(&mut self, expr: &Expr) -> Result {
     match expr {
       Expr::Binary { lhs, operator, rhs } => {
@@ -218,6 +252,7 @@ impl Compiler {
       Expr::Compare { lhs, operator, rhs } => {
         self.compile_compare(lhs, *operator, rhs)
       }
+      Expr::Dict(entries) => self.compile_dict(entries),
       Expr::Float(value) => self.emit_const(Object::Float(*value)),
       Expr::FormattedString(expressions) => {
         for expr in expressions {
@@ -250,20 +285,11 @@ impl Compiler {
         Ok(())
       }
       Expr::Int(value) => self.emit_const(Object::Int(*value)),
-      Expr::List(elements) => {
-        for element in elements {
-          self.compile_expr(element)?;
-        }
-
-        let count =
-          u16::try_from(elements.len()).map_err(|_| Error::Compile {
-            message: "too many list elements".into(),
-          })?;
-
-        self.code_mut().emit(Instruction::BuildList(count));
-
-        Ok(())
-      }
+      Expr::List(elements) => self.compile_elements(
+        elements,
+        "too many list elements",
+        Instruction::BuildList,
+      ),
       Expr::Name(name) => {
         let instruction = self.scopes.resolve_load(name)?;
         self.code_mut().emit(instruction);
@@ -277,20 +303,11 @@ impl Compiler {
         self.code_mut().emit(Instruction::BinarySubscript);
         Ok(())
       }
-      Expr::Tuple(elements) => {
-        for element in elements {
-          self.compile_expr(element)?;
-        }
-
-        let count =
-          u16::try_from(elements.len()).map_err(|_| Error::Compile {
-            message: "too many tuple elements".into(),
-          })?;
-
-        self.code_mut().emit(Instruction::BuildTuple(count));
-
-        Ok(())
-      }
+      Expr::Tuple(elements) => self.compile_elements(
+        elements,
+        "too many tuple elements",
+        Instruction::BuildTuple,
+      ),
       Expr::Unary { operand, operator } => {
         self.compile_expr(operand)?;
 
@@ -1011,6 +1028,27 @@ mod tests {
     .constant(Object::Int(1))
     .constant(Object::Int(2))
     .names(&["bar", "foo", "baz", "qux"])
+    .run();
+  }
+
+  #[test]
+  fn dict_literal() {
+    Test::new(indoc! {
+      "
+      {foo: 1, 'bar': baz}
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::LoadConst(0),
+      Instruction::LoadConst(1),
+      Instruction::LoadName(1),
+      Instruction::BuildDict(2),
+      Instruction::Pop,
+    ])
+    .constant(Object::Int(1))
+    .constant(Object::Str("bar".into()))
+    .names(&["foo", "baz"])
     .run();
   }
 

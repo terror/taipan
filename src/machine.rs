@@ -227,8 +227,9 @@ impl<W: Write> Machine<W> {
       }
       Instruction::BinarySub => self.binary_operation(Object::binary_sub)?,
       Instruction::BinarySubscript => {
-        self.binary_operation(Object::binary_subscript)?;
+        self.binary_operation(Object::get_item)?;
       }
+      Instruction::BuildDict(count) => self.frame_mut()?.build_dict(count)?,
       Instruction::BuildList(count) => self.frame_mut()?.build_list(count)?,
       Instruction::BuildString(count) => {
         self.frame_mut()?.build_string(count)?;
@@ -482,7 +483,7 @@ impl<W: Write> Machine<W> {
 
     let value = self.frame_mut()?.pop()?;
 
-    target.store_subscript(&index, value)
+    target.set_item(&index, value)
   }
 
   fn unary_invert(&mut self) -> Result {
