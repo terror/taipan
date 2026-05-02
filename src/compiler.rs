@@ -151,6 +151,8 @@ impl Compiler {
       CompareOperator::Le => Instruction::CompareLe,
       CompareOperator::Gt => Instruction::CompareGt,
       CompareOperator::Ge => Instruction::CompareGe,
+      CompareOperator::In => Instruction::CompareIn,
+      CompareOperator::NotIn => Instruction::CompareNotIn,
     };
 
     self.code_mut().emit(instruction);
@@ -793,6 +795,40 @@ mod tests {
       Instruction::LoadName(0),
       Instruction::LoadName(1),
       Instruction::CompareLt,
+      Instruction::Pop,
+    ])
+    .names(&["foo", "bar"])
+    .run();
+  }
+
+  #[test]
+  fn membership_comparison() {
+    Test::new(indoc! {
+      "
+      foo in bar
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::LoadName(1),
+      Instruction::CompareIn,
+      Instruction::Pop,
+    ])
+    .names(&["foo", "bar"])
+    .run();
+  }
+
+  #[test]
+  fn not_membership_comparison() {
+    Test::new(indoc! {
+      "
+      foo not in bar
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::LoadName(1),
+      Instruction::CompareNotIn,
       Instruction::Pop,
     ])
     .names(&["foo", "bar"])

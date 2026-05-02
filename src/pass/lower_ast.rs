@@ -65,7 +65,9 @@ impl<'a> LowerAst<'a> {
       CmpOp::LtE => CompareOperator::Le,
       CmpOp::Gt => CompareOperator::Gt,
       CmpOp::GtE => CompareOperator::Ge,
-      CmpOp::Is | CmpOp::IsNot | CmpOp::In | CmpOp::NotIn => {
+      CmpOp::In => CompareOperator::In,
+      CmpOp::NotIn => CompareOperator::NotIn,
+      CmpOp::Is | CmpOp::IsNot => {
         return Err(Error::UnsupportedSyntax {
           message: format!("comparison operator: {}", node.ops[0].as_str()),
         });

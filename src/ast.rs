@@ -25,9 +25,11 @@ pub(crate) enum CompareOperator {
   Eq,
   Ge,
   Gt,
+  In,
   Le,
   Lt,
   Ne,
+  NotIn,
 }
 
 #[derive(Clone, Debug, PartialEq)]
