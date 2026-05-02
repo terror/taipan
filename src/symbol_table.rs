@@ -117,6 +117,17 @@ impl SymbolTable {
         self.analyze_expr(value)?;
       }
       Stmt::Expr(expr) => self.analyze_expr(expr)?,
+      Stmt::For {
+        body,
+        iter,
+        orelse,
+        target,
+      } => {
+        self.analyze_expr(iter)?;
+        self.bind_target(target)?;
+        self.analyze_body(body)?;
+        self.analyze_body(orelse)?;
+      }
       Stmt::FunctionDef(function) => self.analyze_function_header(function)?,
       Stmt::Global(names) => {
         for name in names {

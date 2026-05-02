@@ -62,6 +62,10 @@ impl CodeBuilder {
     self.code.instructions.push(instruction);
   }
 
+  pub(crate) fn emit_for_iter(&mut self, label: usize) -> Result {
+    self.emit_labeled_jump(label, Instruction::ForIter)
+  }
+
   pub(crate) fn emit_jump(&mut self, label: usize) -> Result {
     self.emit_labeled_jump(label, Instruction::Jump)
   }
@@ -174,7 +178,8 @@ impl CodeBuilder {
         })?;
 
     match instruction {
-      Instruction::Jump(jump_target)
+      Instruction::ForIter(jump_target)
+      | Instruction::Jump(jump_target)
       | Instruction::PopJumpIfFalse(jump_target)
       | Instruction::PopJumpIfTrue(jump_target) => *jump_target = target,
       _ => {

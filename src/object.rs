@@ -12,6 +12,7 @@ pub enum Object {
     parameters: Vec<String>,
   },
   Int(i64),
+  Iterator(Rc<RefCell<Iterator>>),
   List(Rc<RefCell<Vec<Object>>>),
   #[default]
   None,
@@ -446,7 +447,7 @@ impl Object {
   pub(crate) fn is_truthy(&self) -> bool {
     match self {
       Self::Bool(b) => *b,
-      Self::Builtin(_) | Self::Function { .. } => true,
+      Self::Builtin(_) | Self::Function { .. } | Self::Iterator(_) => true,
       Self::Float(f) => *f != 0.0,
       Self::Int(i) => *i != 0,
       Self::List(list) => !list.borrow().is_empty(),
@@ -476,6 +477,33 @@ impl Object {
 
   pub(crate) fn list(elements: Vec<Object>) -> Self {
     Self::List(Rc::new(RefCell::new(elements)))
+  }
+
+  pub(crate) fn make_iterator(&self) -> Result<Self> {
+    let items = match self {
+      Self::List(list) => list.borrow().clone(),
+      Self::Str(string) => string
+        .chars()
+        .map(|c| Self::Str(c.to_string()))
+        .collect::<Vec<_>>(),
+      _ => {
+        return Err(Error::TypeError {
+          message: format!("'{}' object is not iterable", self.type_name()),
+        });
+      }
+    };
+
+    Ok(Self::Iterator(Rc::new(RefCell::new(Iterator::new(items)))))
+  }
+
+  pub(crate) fn next(&self) -> Result<Option<Self>> {
+    let Self::Iterator(iterator) = self else {
+      return Err(Error::TypeError {
+        message: format!("'{}' object is not an iterator", self.type_name()),
+      });
+    };
+
+    Ok(iterator.borrow_mut().next())
   }
 
   pub(crate) fn store_subscript(&self, index: &Self, value: Self) -> Result {
@@ -511,6 +539,7 @@ impl Object {
       Self::Float(_) => "float",
       Self::Function { .. } => "function",
       Self::Int(_) => "int",
+      Self::Iterator(_) => "iterator",
       Self::List(_) => "list",
       Self::None => "NoneType",
       Self::Str(_) => "str",
@@ -577,6 +606,7 @@ impl Display for Object {
       }
       Self::Function { name, .. } => write!(f, "<function {name}>"),
       Self::Int(int) => write!(f, "{int}"),
+      Self::Iterator(_) => write!(f, "<iterator>"),
       Self::List(list) => {
         write!(f, "[")?;
 
@@ -604,6 +634,7 @@ impl PartialEq for Object {
       (Self::Int(a), Self::Float(b)) => a.to_f64().is_some_and(|a| a == *b),
       (Self::Float(a), Self::Int(b)) => b.to_f64().is_some_and(|b| *a == b),
       (Self::Bool(a), Self::Bool(b)) => a == b,
+      (Self::Iterator(a), Self::Iterator(b)) => Rc::ptr_eq(a, b),
       (
         Self::Function {
           closure: _,

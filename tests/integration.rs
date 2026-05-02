@@ -443,6 +443,55 @@ fn function_call() -> Result {
 }
 
 #[test]
+fn for_loop() -> Result {
+  Test::new()?
+    .program(
+      "
+      for foo in [1, 2, 3]:
+        print(foo)
+
+      for foo in 'bar':
+        print(foo)
+
+      for foo in range(2):
+        print(foo)
+
+      for foo in range(2, 5):
+        print(foo)
+
+      for foo in range(5, 2, -2):
+        print(foo)
+      ",
+    )
+    .expected_stdout(Exact("1\n2\n3\nb\na\nr\n0\n1\n2\n3\n4\n5\n3\n"))
+    .run()
+}
+
+#[test]
+fn for_loop_break_continue_else() -> Result {
+  Test::new()?
+    .program(
+      "
+      for foo in [1, 2, 3]:
+        if foo == 1:
+          continue
+        if foo == 3:
+          break
+        print(foo)
+      else:
+        print('foo')
+
+      for foo in [1]:
+        print(foo)
+      else:
+        print('bar')
+      ",
+    )
+    .expected_stdout(Exact("2\n1\nbar\n"))
+    .run()
+}
+
+#[test]
 fn lists() -> Result {
   Test::new()?
     .program(

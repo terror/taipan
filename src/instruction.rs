@@ -27,6 +27,8 @@ pub enum Instruction {
   CompareLt,
   CompareNe,
   Dup,
+  ForIter(u16),
+  GetIter,
   Jump(u16),
   LoadConst(u16),
   LoadFast(u16),
