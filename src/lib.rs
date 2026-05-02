@@ -26,6 +26,7 @@ use {
   snafu::Snafu,
   std::{
     cell::RefCell,
+    cmp,
     collections::{HashMap, HashSet},
     fmt::{self, Display, Formatter},
     io::{self, Stdout, Write},

@@ -51,7 +51,7 @@ impl SymbolTable {
         self.analyze_expr(body)?;
         self.analyze_expr(orelse)?;
       }
-      Expr::List(elements) => {
+      Expr::List(elements) | Expr::Tuple(elements) => {
         for element in elements {
           self.analyze_expr(element)?;
         }
@@ -270,6 +270,13 @@ impl SymbolTable {
 
   fn bind_target(&mut self, target: &Expr) -> Result {
     match target {
+      Expr::List(elements) | Expr::Tuple(elements) => {
+        for element in elements {
+          self.bind_target(element)?;
+        }
+
+        Ok(())
+      }
       Expr::Name(name) => self.bind_local(name),
       Expr::Subscript { slice, value } => {
         self.analyze_expr(value)?;

@@ -41,6 +41,14 @@ impl Frame {
     Ok(())
   }
 
+  pub(crate) fn build_tuple(&mut self, count: u16) -> Result {
+    let elements = self.pop_elements(usize::from(count))?;
+
+    self.push(Object::tuple(elements));
+
+    Ok(())
+  }
+
   pub(crate) fn capture_cell(
     &self,
     name: &str,

@@ -19,6 +19,7 @@ pub enum Instruction {
   BinarySubscript,
   BuildList(u16),
   BuildString(u16),
+  BuildTuple(u16),
   CallFunction(u8),
   CompareEq,
   CompareGe,
@@ -47,4 +48,5 @@ pub enum Instruction {
   UnaryNeg,
   UnaryNot,
   UnaryPos,
+  UnpackSequence(u16),
 }

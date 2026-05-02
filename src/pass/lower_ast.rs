@@ -150,6 +150,13 @@ impl<'a> LowerAst<'a> {
         slice: Box::new(self.expr(&node.slice)?),
         value: Box::new(self.expr(&node.value)?),
       }),
+      ruff_python_ast::Expr::Tuple(node) => Ok(Expr::Tuple(
+        node
+          .elts
+          .iter()
+          .map(|expr| self.expr(expr))
+          .collect::<Result<_>>()?,
+      )),
       ruff_python_ast::Expr::UnaryOp(node) => {
         let operator = match node.op {
           UnaryOp::USub => UnaryOperator::USub,
@@ -349,11 +356,25 @@ impl<'a> LowerAst<'a> {
 
   fn target(&self, target: &ruff_python_ast::Expr) -> Result<Expr> {
     match target {
+      ruff_python_ast::Expr::List(node) => Ok(Expr::List(
+        node
+          .elts
+          .iter()
+          .map(|expr| self.target(expr))
+          .collect::<Result<_>>()?,
+      )),
       ruff_python_ast::Expr::Name(name) => Ok(Expr::Name(name.id.to_string())),
       ruff_python_ast::Expr::Subscript(node) => Ok(Expr::Subscript {
         slice: Box::new(self.expr(&node.slice)?),
         value: Box::new(self.expr(&node.value)?),
       }),
+      ruff_python_ast::Expr::Tuple(node) => Ok(Expr::Tuple(
+        node
+          .elts
+          .iter()
+          .map(|expr| self.target(expr))
+          .collect::<Result<_>>()?,
+      )),
       _ => Err(Error::UnsupportedSyntax {
         message: "complex assignment target".into(),
       }),

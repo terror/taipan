@@ -17,6 +17,7 @@ pub enum Object {
   #[default]
   None,
   Str(String),
+  Tuple(Rc<Vec<Object>>),
 }
 
 impl Object {
@@ -37,6 +38,11 @@ impl Object {
         let mut result = a.borrow().clone();
         result.extend(b.borrow().iter().cloned());
         Ok(Self::List(Rc::new(RefCell::new(result))))
+      }
+      (Self::Tuple(a), Self::Tuple(b)) => {
+        let mut result = a.iter().cloned().collect::<Vec<_>>();
+        result.extend(b.iter().cloned());
+        Ok(Self::Tuple(Rc::new(result)))
       }
       _ => Err(self.binary_type_error("+", rhs)),
     }
@@ -256,6 +262,28 @@ impl Object {
 
         Ok(Self::List(Rc::new(RefCell::new(result))))
       }
+      (Self::Tuple(tuple), Self::Int(count))
+      | (Self::Int(count), Self::Tuple(tuple)) => {
+        let count = if *count <= 0 {
+          0
+        } else {
+          usize::try_from(*count).map_err(|_| Error::Overflow)?
+        };
+
+        let capacity = tuple.len().checked_mul(count).ok_or(Error::Overflow)?;
+
+        let mut result = Vec::new();
+
+        result
+          .try_reserve_exact(capacity)
+          .map_err(|_| Error::Overflow)?;
+
+        for _ in 0..count {
+          result.extend(tuple.iter().cloned());
+        }
+
+        Ok(Self::Tuple(Rc::new(result)))
+      }
       _ => Err(self.binary_type_error("*", rhs)),
     }
   }
@@ -334,6 +362,12 @@ impl Object {
             message: "list index out of range".into(),
           })
       }
+      Self::Tuple(tuple) => tuple
+        .get(rhs.index(tuple.len())?)
+        .cloned()
+        .ok_or_else(|| Error::Index {
+          message: "tuple index out of range".into(),
+        }),
       Self::Str(string) => string
         .chars()
         .nth(rhs.index(string.chars().count())?)
@@ -453,6 +487,7 @@ impl Object {
       Self::List(list) => !list.borrow().is_empty(),
       Self::None => false,
       Self::Str(s) => !s.is_empty(),
+      Self::Tuple(tuple) => !tuple.is_empty(),
     }
   }
 
@@ -460,6 +495,7 @@ impl Object {
     let len = match self {
       Self::List(list) => list.borrow().len(),
       Self::Str(s) => s.len(),
+      Self::Tuple(tuple) => tuple.len(),
       _ => {
         return Err(Error::TypeError {
           message: format!(
@@ -486,6 +522,7 @@ impl Object {
         .chars()
         .map(|c| Self::Str(c.to_string()))
         .collect::<Vec<_>>(),
+      Self::Tuple(tuple) => tuple.iter().cloned().collect::<Vec<_>>(),
       _ => {
         return Err(Error::TypeError {
           message: format!("'{}' object is not iterable", self.type_name()),
@@ -532,6 +569,10 @@ impl Object {
     }
   }
 
+  pub(crate) fn tuple(elements: Vec<Object>) -> Self {
+    Self::Tuple(Rc::new(elements))
+  }
+
   pub(crate) fn type_name(&self) -> &'static str {
     match self {
       Self::Bool(_) => "bool",
@@ -543,6 +584,7 @@ impl Object {
       Self::List(_) => "list",
       Self::None => "NoneType",
       Self::Str(_) => "str",
+      Self::Tuple(_) => "tuple",
     }
   }
 
@@ -587,6 +629,41 @@ impl Object {
       }),
     }
   }
+
+  pub(crate) fn unpack_sequence(&self, count: usize) -> Result<Vec<Self>> {
+    let elements = match self {
+      Self::List(list) => list.borrow().clone(),
+      Self::Str(string) => string
+        .chars()
+        .map(|c| Self::Str(c.to_string()))
+        .collect::<Vec<_>>(),
+      Self::Tuple(tuple) => tuple.iter().cloned().collect::<Vec<_>>(),
+      _ => {
+        return Err(Error::TypeError {
+          message: format!(
+            "cannot unpack non-iterable {} object",
+            self.type_name()
+          ),
+        });
+      }
+    };
+
+    match elements.len().cmp(&count) {
+      cmp::Ordering::Equal => Ok(elements),
+      cmp::Ordering::Less => Err(Error::TypeError {
+        message: format!(
+          "not enough values to unpack (expected {count}, got {})",
+          elements.len()
+        ),
+      }),
+      cmp::Ordering::Greater => Err(Error::TypeError {
+        message: format!(
+          "too many values to unpack (expected {count}, got {})",
+          elements.len()
+        ),
+      }),
+    }
+  }
 }
 
 impl Display for Object {
@@ -622,6 +699,23 @@ impl Display for Object {
       }
       Self::None => write!(f, "None"),
       Self::Str(string) => write!(f, "{string}"),
+      Self::Tuple(tuple) => {
+        write!(f, "(")?;
+
+        for (index, object) in tuple.iter().enumerate() {
+          if index > 0 {
+            write!(f, ", ")?;
+          }
+
+          write!(f, "{object}")?;
+        }
+
+        if tuple.len() == 1 {
+          write!(f, ",")?;
+        }
+
+        write!(f, ")")
+      }
     }
   }
 }
@@ -654,6 +748,7 @@ impl PartialEq for Object {
       }
       (Self::Str(a), Self::Str(b)) => a == b,
       (Self::None, Self::None) => true,
+      (Self::Tuple(a), Self::Tuple(b)) => Rc::ptr_eq(a, b) || a == b,
       _ => false,
     }
   }
