@@ -103,6 +103,12 @@ pub(crate) enum Stmt {
   Break,
   Continue,
   Expr(Expr),
+  For {
+    body: Vec<Stmt>,
+    iter: Expr,
+    orelse: Vec<Stmt>,
+    target: Expr,
+  },
   FunctionDef(FunctionDef),
   Global(Vec<String>),
   If {

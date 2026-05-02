@@ -283,6 +283,20 @@ impl<'a> LowerAst<'a> {
       ruff_python_ast::Stmt::Expr(node) => {
         Ok(Stmt::Expr(self.expr(&node.value)?))
       }
+      ruff_python_ast::Stmt::For(node) => {
+        if node.is_async {
+          return Err(Error::UnsupportedSyntax {
+            message: "async for".into(),
+          });
+        }
+
+        Ok(Stmt::For {
+          body: self.body(&node.body)?,
+          iter: self.expr(&node.iter)?,
+          orelse: self.body(&node.orelse)?,
+          target: self.target(&node.target)?,
+        })
+      }
       ruff_python_ast::Stmt::FunctionDef(node) => {
         Ok(Stmt::FunctionDef(FunctionDef {
           body: self.body(&node.body)?,

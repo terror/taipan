@@ -158,6 +158,8 @@ impl<W: Write> Machine<W> {
       Instruction::CompareLt => self.binary_operation(Object::compare_lt)?,
       Instruction::CompareNe => self.compare_ne()?,
       Instruction::Dup => self.dup()?,
+      Instruction::ForIter(target) => self.for_iter(target)?,
+      Instruction::GetIter => self.get_iter()?,
       Instruction::Jump(target) => self.jump(target)?,
       Instruction::LoadConst(index) => self.load_const(index)?,
       Instruction::LoadFast(index) => self.load_fast(index)?,
@@ -199,6 +201,19 @@ impl<W: Write> Machine<W> {
     Ok(None)
   }
 
+  fn for_iter(&mut self, target: u16) -> Result {
+    let iterator = self.frame()?.peek()?;
+
+    if let Some(item) = iterator.next()? {
+      self.frame_mut()?.push(item);
+    } else {
+      self.frame_mut()?.pop()?;
+      self.frame_mut()?.jump(target)?;
+    }
+
+    Ok(())
+  }
+
   fn frame(&self) -> Result<&Frame> {
     self.frames.last().ok_or_else(|| Error::Internal {
       message: "missing frame".into(),
@@ -209,6 +224,14 @@ impl<W: Write> Machine<W> {
     self.frames.last_mut().ok_or_else(|| Error::Internal {
       message: "missing frame".into(),
     })
+  }
+
+  fn get_iter(&mut self) -> Result {
+    let value = self.frame_mut()?.pop()?;
+
+    self.frame_mut()?.push(value.make_iterator()?);
+
+    Ok(())
   }
 
   fn initialize(&mut self) {

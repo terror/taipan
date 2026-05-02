@@ -110,6 +110,10 @@ impl Compiler {
           message: "break outside loop".into(),
         })?;
 
+    for _ in 0..control_flow.break_stack_pops {
+      self.code_mut().emit(Instruction::Pop);
+    }
+
     self.code_mut().emit_jump(control_flow.break_label)
   }
 
@@ -262,6 +266,34 @@ impl Compiler {
     }
   }
 
+  fn compile_for(
+    &mut self,
+    target: &Expr,
+    iter: &Expr,
+    body: &[Stmt],
+    else_body: &[Stmt],
+  ) -> Result {
+    let start = self.code_mut().label();
+    let orelse = self.code_mut().label();
+    let end = self.code_mut().label();
+
+    self.compile_expr(iter)?;
+    self.code_mut().emit(Instruction::GetIter);
+
+    self.code_mut().mark(start)?;
+    self.code_mut().emit_for_iter(orelse)?;
+    self.compile_store(target)?;
+
+    self.compile_loop_body(body, end, start, 1)?;
+
+    self.code_mut().emit_jump(start)?;
+    self.code_mut().mark(orelse)?;
+    self.compile_body(else_body)?;
+    self.code_mut().mark(end)?;
+
+    Ok(())
+  }
+
   fn compile_function_def(&mut self, function: &FunctionDef) -> Result {
     let symbols = SymbolTable::function(function)?;
 
@@ -377,9 +409,11 @@ impl Compiler {
     body: &[Stmt],
     break_label: usize,
     continue_label: usize,
+    break_stack_pops: u16,
   ) -> Result {
     self.scope_mut().control_flows.push(ControlFlow {
       break_label,
+      break_stack_pops,
       continue_label,
     });
 
@@ -450,6 +484,12 @@ impl Compiler {
         self.code_mut().emit(Instruction::Pop);
         Ok(())
       }
+      Stmt::For {
+        body,
+        iter,
+        orelse,
+        target,
+      } => self.compile_for(target, iter, body, orelse),
       Stmt::FunctionDef(function) => self.compile_function_def(function),
       Stmt::Global(_) | Stmt::Pass => Ok(()),
       Stmt::If {
@@ -499,7 +539,7 @@ impl Compiler {
     self.compile_expr(test)?;
     self.code_mut().emit_jump_if_false(orelse)?;
 
-    self.compile_loop_body(body, end, start)?;
+    self.compile_loop_body(body, end, start, 0)?;
 
     self.code_mut().emit_jump(start)?;
     self.code_mut().mark(orelse)?;
@@ -783,6 +823,36 @@ mod tests {
     .constant(Object::Int(1))
     .constant(Object::Int(2))
     .names(&["bar"])
+    .run();
+  }
+
+  #[test]
+  fn for_break_else() {
+    Test::new(indoc! {
+      "
+      for foo in bar:
+        break
+      else:
+        baz = 1
+      qux = 2
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::GetIter,
+      Instruction::ForIter(7),
+      Instruction::StoreName(1),
+      Instruction::Pop,
+      Instruction::Jump(9),
+      Instruction::Jump(2),
+      Instruction::LoadConst(0),
+      Instruction::StoreName(2),
+      Instruction::LoadConst(1),
+      Instruction::StoreName(3),
+    ])
+    .constant(Object::Int(1))
+    .constant(Object::Int(2))
+    .names(&["bar", "foo", "baz", "qux"])
     .run();
   }
 

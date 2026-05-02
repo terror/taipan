@@ -34,6 +34,10 @@ pub(crate) const BUILTINS: &[Builtin] = &[
     name: "print",
   },
   Builtin::Function {
+    function: range,
+    name: "range",
+  },
+  Builtin::Function {
     function: repr,
     name: "repr",
   },
@@ -204,6 +208,54 @@ fn print(arguments: &[Object], output: &mut dyn Write) -> Result<Object> {
   .map_err(|source| Error::Io { source })?;
 
   Ok(Object::None)
+}
+
+fn range(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {
+  if arguments.is_empty() || arguments.len() > 3 {
+    return Err(Error::TypeError {
+      message: "range() expected 1 to 3 arguments".into(),
+    });
+  }
+
+  let integer = |argument: &Object| match argument {
+    Object::Int(integer) => Ok(*integer),
+    _ => Err(Error::TypeError {
+      message: format!(
+        "'{}' object cannot be interpreted as an integer",
+        argument.type_name()
+      ),
+    }),
+  };
+
+  let (first, last, increment) = match arguments {
+    [last] => (0, integer(last)?, 1),
+    [first, last] => (integer(first)?, integer(last)?, 1),
+    [first, last, increment] => {
+      (integer(first)?, integer(last)?, integer(increment)?)
+    }
+    _ => unreachable!(),
+  };
+
+  if increment == 0 {
+    return Err(Error::TypeError {
+      message: "range() arg 3 must not be zero".into(),
+    });
+  }
+
+  let mut items = Vec::new();
+
+  let mut current = first;
+
+  while if increment > 0 {
+    current < last
+  } else {
+    current > last
+  } {
+    items.push(Object::Int(current));
+    current = current.checked_add(increment).ok_or(Error::Overflow)?;
+  }
+
+  Ok(Object::list(items))
 }
 
 fn repr(arguments: &[Object], _output: &mut dyn Write) -> Result<Object> {

@@ -26,6 +26,8 @@ export type Instruction =
   | { opcode: 'compareLt'; argument?: undefined }
   | { opcode: 'compareNe'; argument?: undefined }
   | { opcode: 'dup'; argument?: undefined }
+  | { opcode: 'forIter'; argument: number }
+  | { opcode: 'getIter'; argument?: undefined }
   | { opcode: 'jump'; argument: number }
   | { opcode: 'loadConst'; argument: number }
   | { opcode: 'loadFast'; argument: number }

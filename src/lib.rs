@@ -29,6 +29,7 @@ use {
     collections::{HashMap, HashSet},
     fmt::{self, Display, Formatter},
     io::{self, Stdout, Write},
+    iter,
     rc::Rc,
   },
   stmt_ext::StmtExt,
@@ -50,6 +51,7 @@ mod error;
 mod expr_ext;
 mod frame;
 mod instruction;
+mod iterator;
 mod machine;
 mod object;
 mod operator_ext;
@@ -66,5 +68,6 @@ pub type Result<T = (), E = Error> = std::result::Result<T, E>;
 
 pub use {
   builtin::Builtin, code::Code, compiler::Compiler, error::Error,
-  instruction::Instruction, machine::Machine, object::Object,
+  instruction::Instruction, iterator::Iterator, machine::Machine,
+  object::Object,
 };
