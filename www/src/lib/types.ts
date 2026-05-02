@@ -18,6 +18,7 @@ export type Instruction =
   | { opcode: 'binarySubscript'; argument?: undefined }
   | { opcode: 'buildList'; argument: number }
   | { opcode: 'buildString'; argument: number }
+  | { opcode: 'buildTuple'; argument: number }
   | { opcode: 'callFunction'; argument: number }
   | { opcode: 'compareEq'; argument?: undefined }
   | { opcode: 'compareGe'; argument?: undefined }
@@ -42,6 +43,7 @@ export type Instruction =
   | { opcode: 'storeFree'; argument: number }
   | { opcode: 'storeName'; argument: number }
   | { opcode: 'storeSubscript'; argument?: undefined }
+  | { opcode: 'unpackSequence'; argument: number }
   | { opcode: 'unaryInvert'; argument?: undefined }
   | { opcode: 'unaryNeg'; argument?: undefined }
   | { opcode: 'unaryNot'; argument?: undefined }

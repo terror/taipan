@@ -249,6 +249,20 @@ impl Compiler {
         self.code_mut().emit(Instruction::BinarySubscript);
         Ok(())
       }
+      Expr::Tuple(elements) => {
+        for element in elements {
+          self.compile_expr(element)?;
+        }
+
+        let count =
+          u16::try_from(elements.len()).map_err(|_| Error::Compile {
+            message: "too many tuple elements".into(),
+          })?;
+
+        self.code_mut().emit(Instruction::BuildTuple(count));
+
+        Ok(())
+      }
       Expr::Unary { operand, operator } => {
         self.compile_expr(operand)?;
 
@@ -507,6 +521,20 @@ impl Compiler {
 
   fn compile_store(&mut self, target: &Expr) -> Result {
     match target {
+      Expr::List(elements) | Expr::Tuple(elements) => {
+        let count =
+          u16::try_from(elements.len()).map_err(|_| Error::Compile {
+            message: "too many assignment targets".into(),
+          })?;
+
+        self.code_mut().emit(Instruction::UnpackSequence(count));
+
+        for element in elements {
+          self.compile_store(element)?;
+        }
+
+        Ok(())
+      }
       Expr::Name(name) => {
         let instruction = self.scopes.resolve_store(name)?;
         self.code_mut().emit(instruction);
@@ -871,6 +899,41 @@ mod tests {
     ])
     .constant(Object::Int(1))
     .names(&["foo"])
+    .run();
+  }
+
+  #[test]
+  fn tuple_literal() {
+    Test::new(indoc! {
+      "
+      (foo, 1)
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::LoadConst(0),
+      Instruction::BuildTuple(2),
+      Instruction::Pop,
+    ])
+    .constant(Object::Int(1))
+    .names(&["foo"])
+    .run();
+  }
+
+  #[test]
+  fn unpack_sequence() {
+    Test::new(indoc! {
+      "
+      foo, bar = baz
+      "
+    })
+    .instructions(&[
+      Instruction::LoadName(0),
+      Instruction::UnpackSequence(2),
+      Instruction::StoreName(1),
+      Instruction::StoreName(2),
+    ])
+    .names(&["baz", "foo", "bar"])
     .run();
   }
 

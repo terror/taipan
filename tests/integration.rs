@@ -543,6 +543,107 @@ fn list_operations() -> Result {
 }
 
 #[test]
+fn tuple_assignment() -> Result {
+  Test::new()?
+    .program(
+      "
+      foo, bar = 1, 2
+      foo, bar = bar, foo
+      [baz, [qux, quux]] = [3, [4, 5]]
+      print(foo)
+      print(bar)
+      print(baz)
+      print(qux)
+      print(quux)
+      ",
+    )
+    .expected_stdout(Exact("2\n1\n3\n4\n5\n"))
+    .run()
+}
+
+#[test]
+fn tuple_assignment_too_few_values() -> Result {
+  Test::new()?
+    .program(
+      "
+      foo, bar = [1]
+      ",
+    )
+    .expected_status(1)
+    .expected_stderr(Contains(
+      "TypeError: not enough values to unpack (expected 2, got 1)",
+    ))
+    .run()
+}
+
+#[test]
+fn tuple_assignment_too_many_values() -> Result {
+  Test::new()?
+    .program(
+      "
+      foo, bar = [1, 2, 3]
+      ",
+    )
+    .expected_status(1)
+    .expected_stderr(Contains(
+      "TypeError: too many values to unpack (expected 2, got 3)",
+    ))
+    .run()
+}
+
+#[test]
+fn tuple_for_loop() -> Result {
+  Test::new()?
+    .program(
+      "
+      for foo, bar in [(1, 2), (3, 4)]:
+        print(foo)
+        print(bar)
+      ",
+    )
+    .expected_stdout(Exact("1\n2\n3\n4\n"))
+    .run()
+}
+
+#[test]
+fn tuple_operations() -> Result {
+  Test::new()?
+    .program(
+      "
+      print((1, 2) + (3,))
+      print((1, 2) * 2)
+      print(2 * (3,))
+      ",
+    )
+    .expected_stdout(Exact("(1, 2, 3)\n(1, 2, 1, 2)\n(3, 3)\n"))
+    .run()
+}
+
+#[test]
+fn tuples() -> Result {
+  Test::new()?
+    .program(
+      "
+      foo = (1, 'bar', 3)
+      print(())
+      print((1,))
+      print(foo)
+      print(foo[0])
+      print(foo[-1])
+      print(len(foo))
+      print(bool(()))
+      print(bool((1,)))
+      print((1, 2) == (1, 2))
+      print((1, 2) == (2, 1))
+      ",
+    )
+    .expected_stdout(Exact(
+      "()\n(1,)\n(1, bar, 3)\n1\n3\n3\nFalse\nTrue\nTrue\nFalse\n",
+    ))
+    .run()
+}
+
+#[test]
 fn implicit_return() -> Result {
   Test::new()?
     .program(

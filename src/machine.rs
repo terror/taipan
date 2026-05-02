@@ -45,6 +45,10 @@ impl<W: Write> Machine<W> {
     self.frame_mut()?.build_string(count)
   }
 
+  fn build_tuple(&mut self, count: u16) -> Result {
+    self.frame_mut()?.build_tuple(count)
+  }
+
   fn call_function(&mut self, count: u8) -> Result {
     let argument_count = usize::from(count);
 
@@ -150,6 +154,7 @@ impl<W: Write> Machine<W> {
       }
       Instruction::BuildList(count) => self.build_list(count)?,
       Instruction::BuildString(count) => self.build_string(count)?,
+      Instruction::BuildTuple(count) => self.build_tuple(count)?,
       Instruction::CallFunction(argc) => self.call_function(argc)?,
       Instruction::CompareEq => self.compare_eq()?,
       Instruction::CompareGe => self.binary_operation(Object::compare_ge)?,
@@ -176,6 +181,7 @@ impl<W: Write> Machine<W> {
       Instruction::StoreFree(index) => self.store_free(index)?,
       Instruction::StoreName(index) => self.store_name(index)?,
       Instruction::StoreSubscript => self.store_subscript()?,
+      Instruction::UnpackSequence(count) => self.unpack_sequence(count)?,
       Instruction::UnaryInvert => self.unary_invert()?,
       Instruction::UnaryNeg => self.unary_neg()?,
       Instruction::UnaryNot => self.unary_not()?,
@@ -407,6 +413,17 @@ impl<W: Write> Machine<W> {
     let value = self.frame_mut()?.pop()?;
 
     self.frame_mut()?.push(value.unary_pos()?);
+
+    Ok(())
+  }
+
+  fn unpack_sequence(&mut self, count: u16) -> Result {
+    let value = self.frame_mut()?.pop()?;
+
+    for element in value.unpack_sequence(usize::from(count))?.into_iter().rev()
+    {
+      self.frame_mut()?.push(element);
+    }
 
     Ok(())
   }
