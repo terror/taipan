@@ -49,7 +49,6 @@ mod control_flow;
 mod error;
 mod expr_ext;
 mod frame;
-mod function;
 mod instruction;
 mod machine;
 mod object;
@@ -67,6 +66,5 @@ pub type Result<T = (), E = Error> = std::result::Result<T, E>;
 
 pub use {
   builtin::Builtin, code::Code, compiler::Compiler, error::Error,
-  function::Function, instruction::Instruction, machine::Machine,
-  object::Object,
+  instruction::Instruction, machine::Machine, object::Object,
 };
