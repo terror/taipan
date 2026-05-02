@@ -54,6 +54,7 @@ pub(crate) enum Expr {
     operator: CompareOperator,
     rhs: Box<Expr>,
   },
+  Dict(Vec<DictEntry>),
   Float(f64),
   FormattedString(Vec<Expr>),
   If {
@@ -75,6 +76,12 @@ pub(crate) enum Expr {
     operand: Box<Expr>,
     operator: UnaryOperator,
   },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct DictEntry {
+  pub(crate) key: Expr,
+  pub(crate) value: Expr,
 }
 
 #[derive(Clone, Debug, PartialEq)]

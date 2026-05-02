@@ -118,6 +118,25 @@ impl<'a> LowerAst<'a> {
     ))
   }
 
+  fn dict(&self, node: &ruff_python_ast::ExprDict) -> Result<Expr> {
+    Ok(Expr::Dict(
+      node
+        .items
+        .iter()
+        .map(|item| {
+          Ok(DictEntry {
+            key: self.expr(item.key.as_ref().ok_or_else(|| {
+              Error::UnsupportedSyntax {
+                message: "dictionary unpacking".into(),
+              }
+            })?)?,
+            value: self.expr(&item.value)?,
+          })
+        })
+        .collect::<Result<_>>()?,
+    ))
+  }
+
   fn expr(&self, expr: &ruff_python_ast::Expr) -> Result<Expr> {
     match expr {
       ruff_python_ast::Expr::BinOp(node) => Ok(Expr::Binary {
@@ -139,6 +158,7 @@ impl<'a> LowerAst<'a> {
       ruff_python_ast::Expr::BooleanLiteral(node) => Ok(Expr::Bool(node.value)),
       ruff_python_ast::Expr::Call(node) => self.call(node),
       ruff_python_ast::Expr::Compare(node) => self.compare(node),
+      ruff_python_ast::Expr::Dict(node) => self.dict(node),
       ruff_python_ast::Expr::FString(node) => {
         self.formatted_string(node.value.iter())
       }

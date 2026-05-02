@@ -11,6 +11,8 @@ pub enum Error {
   Internal { message: String },
   #[snafu(display("IOError: {source}"))]
   Io { source: io::Error },
+  #[snafu(display("KeyError: {key}"))]
+  Key { key: String },
   #[snafu(display("NameError: name '{name}' is not defined"))]
   NameError { name: String },
   #[snafu(display("OverflowError: integer overflow"))]

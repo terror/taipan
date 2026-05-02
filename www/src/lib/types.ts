@@ -16,6 +16,7 @@ export type Instruction =
   | { opcode: 'binaryRShift'; argument?: undefined }
   | { opcode: 'binarySub'; argument?: undefined }
   | { opcode: 'binarySubscript'; argument?: undefined }
+  | { opcode: 'buildDict'; argument: number }
   | { opcode: 'buildList'; argument: number }
   | { opcode: 'buildString'; argument: number }
   | { opcode: 'buildTuple'; argument: number }

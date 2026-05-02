@@ -4,6 +4,7 @@ use super::*;
 pub enum Object {
   Bool(bool),
   Builtin(Builtin),
+  Dict(Rc<RefCell<Vec<(Object, Object)>>>),
   Float(f64),
   Function {
     closure: Vec<Rc<RefCell<Option<Object>>>>,
@@ -352,36 +353,6 @@ impl Object {
     }
   }
 
-  pub(crate) fn binary_subscript(&self, rhs: &Self) -> Result<Self> {
-    match self {
-      Self::List(list) => {
-        let list = list.borrow();
-        list
-          .get(rhs.index(list.len())?)
-          .cloned()
-          .ok_or_else(|| Error::Index {
-            message: "list index out of range".into(),
-          })
-      }
-      Self::Tuple(tuple) => tuple
-        .get(rhs.index(tuple.len())?)
-        .cloned()
-        .ok_or_else(|| Error::Index {
-          message: "tuple index out of range".into(),
-        }),
-      Self::Str(string) => string
-        .chars()
-        .nth(rhs.index(string.chars().count())?)
-        .map(|c| Self::Str(c.to_string()))
-        .ok_or_else(|| Error::Index {
-          message: "string index out of range".into(),
-        }),
-      _ => Err(Error::TypeError {
-        message: format!("'{}' object is not subscriptable", self.type_name()),
-      }),
-    }
-  }
-
   fn binary_type_error(&self, operator: &str, rhs: &Self) -> Error {
     Error::TypeError {
       message: format!(
@@ -406,6 +377,9 @@ impl Object {
 
   pub(crate) fn compare_in(&self, rhs: &Self) -> Result<Self> {
     match rhs {
+      Self::Dict(dict) => {
+        Ok(Self::Bool(dict.borrow().iter().any(|(key, _)| key == self)))
+      }
       Self::List(list) => Ok(Self::Bool(list.borrow().contains(self))),
       Self::Str(string) => match self {
         Self::Str(needle) => Ok(Self::Bool(string.contains(needle))),
@@ -489,32 +463,66 @@ impl Object {
     Ok(Self::Bool(cmp(a, b)))
   }
 
-  fn index(&self, len: usize) -> Result<usize> {
-    let index = match self {
-      Self::Int(index) => *index,
-      _ => Err(Error::TypeError {
-        message: format!(
-          "list indices must be integers, not {}",
-          self.type_name()
-        ),
-      })?,
-    };
+  pub(crate) fn dict(entries: Vec<(Object, Object)>) -> Self {
+    let mut result = Vec::<(Object, Object)>::new();
 
-    let len = i64::try_from(len).map_err(|_| Error::Overflow)?;
-
-    let index = if index < 0 { len + index } else { index };
-
-    if index < 0 {
-      return usize::try_from(len).map_err(|_| Error::Overflow);
+    for (key, value) in entries {
+      if let Some((_, existing)) =
+        result.iter_mut().find(|(existing, _)| existing == &key)
+      {
+        *existing = value;
+      } else {
+        result.push((key, value));
+      }
     }
 
-    usize::try_from(index).map_err(|_| Error::Overflow)
+    Self::Dict(Rc::new(RefCell::new(result)))
+  }
+
+  pub(crate) fn get_item(&self, key: &Self) -> Result<Self> {
+    match self {
+      Self::Dict(dict) => dict
+        .borrow()
+        .iter()
+        .find(|(dict_key, _)| dict_key == key)
+        .map(|(_, value)| value.clone())
+        .ok_or_else(|| Error::Key {
+          key: key.to_string(),
+        }),
+      Self::List(list) => {
+        let list = list.borrow();
+
+        list
+          .get(key.sequence_index(list.len(), "list")?)
+          .cloned()
+          .ok_or_else(|| Error::Index {
+            message: "list index out of range".into(),
+          })
+      }
+      Self::Tuple(tuple) => tuple
+        .get(key.sequence_index(tuple.len(), "tuple")?)
+        .cloned()
+        .ok_or_else(|| Error::Index {
+          message: "tuple index out of range".into(),
+        }),
+      Self::Str(string) => string
+        .chars()
+        .nth(key.sequence_index(string.chars().count(), "string")?)
+        .map(|c| Self::Str(c.to_string()))
+        .ok_or_else(|| Error::Index {
+          message: "string index out of range".into(),
+        }),
+      _ => Err(Error::TypeError {
+        message: format!("'{}' object is not subscriptable", self.type_name()),
+      }),
+    }
   }
 
   pub(crate) fn is_truthy(&self) -> bool {
     match self {
       Self::Bool(b) => *b,
       Self::Builtin(_) | Self::Function { .. } | Self::Iterator(_) => true,
+      Self::Dict(dict) => !dict.borrow().is_empty(),
       Self::Float(f) => *f != 0.0,
       Self::Int(i) => *i != 0,
       Self::List(list) => !list.borrow().is_empty(),
@@ -526,6 +534,7 @@ impl Object {
 
   pub(crate) fn len(&self) -> Result<Self> {
     let len = match self {
+      Self::Dict(dict) => dict.borrow().len(),
       Self::List(list) => list.borrow().len(),
       Self::Str(s) => s.len(),
       Self::Tuple(tuple) => tuple.len(),
@@ -550,6 +559,11 @@ impl Object {
 
   pub(crate) fn make_iterator(&self) -> Result<Self> {
     let items = match self {
+      Self::Dict(dict) => dict
+        .borrow()
+        .iter()
+        .map(|(key, _)| key.clone())
+        .collect::<Vec<_>>(),
       Self::List(list) => list.borrow().clone(),
       Self::Str(string) => string
         .chars()
@@ -576,12 +590,47 @@ impl Object {
     Ok(iterator.borrow_mut().next())
   }
 
-  pub(crate) fn store_subscript(&self, index: &Self, value: Self) -> Result {
+  fn sequence_index(&self, len: usize, sequence_type: &str) -> Result<usize> {
+    let index = match self {
+      Self::Int(index) => *index,
+      _ => Err(Error::TypeError {
+        message: format!(
+          "{sequence_type} indices must be integers, not {}",
+          self.type_name()
+        ),
+      })?,
+    };
+
+    let len = i64::try_from(len).map_err(|_| Error::Overflow)?;
+
+    let index = if index < 0 { len + index } else { index };
+
+    if index < 0 {
+      return usize::try_from(len).map_err(|_| Error::Overflow);
+    }
+
+    usize::try_from(index).map_err(|_| Error::Overflow)
+  }
+
+  pub(crate) fn set_item(&self, key: &Self, value: Self) -> Result {
     match self {
+      Self::Dict(dict) => {
+        let mut dict = dict.borrow_mut();
+
+        if let Some((_, existing)) =
+          dict.iter_mut().find(|(dict_key, _)| dict_key == key)
+        {
+          *existing = value;
+        } else {
+          dict.push((key.clone(), value));
+        }
+
+        Ok(())
+      }
       Self::List(list) => {
         let mut list = list.borrow_mut();
 
-        let index = index.index(list.len())?;
+        let index = key.sequence_index(list.len(), "list")?;
 
         let Some(element) = list.get_mut(index) else {
           return Err(Error::Index {
@@ -610,6 +659,7 @@ impl Object {
     match self {
       Self::Bool(_) => "bool",
       Self::Builtin(_) => "builtin_function_or_method",
+      Self::Dict(_) => "dict",
       Self::Float(_) => "float",
       Self::Function { .. } => "function",
       Self::Int(_) => "int",
@@ -665,6 +715,11 @@ impl Object {
 
   pub(crate) fn unpack_sequence(&self, count: usize) -> Result<Vec<Self>> {
     let elements = match self {
+      Self::Dict(dict) => dict
+        .borrow()
+        .iter()
+        .map(|(key, _)| key.clone())
+        .collect::<Vec<_>>(),
       Self::List(list) => list.borrow().clone(),
       Self::Str(string) => string
         .chars()
@@ -706,6 +761,19 @@ impl Display for Object {
       Self::Bool(false) => write!(f, "False"),
       Self::Builtin(builtin) => {
         write!(f, "<built-in function {}>", builtin.name())
+      }
+      Self::Dict(dict) => {
+        write!(f, "{{")?;
+
+        for (index, (key, value)) in dict.borrow().iter().enumerate() {
+          if index > 0 {
+            write!(f, ", ")?;
+          }
+
+          write!(f, "{key}: {value}")?;
+        }
+
+        write!(f, "}}")
       }
       Self::Float(float) => {
         if float.fract() == 0.0 && float.is_finite() {
@@ -761,6 +829,21 @@ impl PartialEq for Object {
       (Self::Int(a), Self::Float(b)) => a.to_f64().is_some_and(|a| a == *b),
       (Self::Float(a), Self::Int(b)) => b.to_f64().is_some_and(|b| *a == b),
       (Self::Bool(a), Self::Bool(b)) => a == b,
+      (Self::Dict(a), Self::Dict(b)) => {
+        if Rc::ptr_eq(a, b) {
+          return true;
+        }
+
+        let a = a.borrow();
+        let b = b.borrow();
+
+        a.len() == b.len()
+          && a.iter().all(|(key, value)| {
+            b.iter()
+              .find(|(other_key, _)| other_key == key)
+              .is_some_and(|(_, other_value)| other_value == value)
+          })
+      }
       (Self::Iterator(a), Self::Iterator(b)) => Rc::ptr_eq(a, b),
       (
         Self::Function {

@@ -46,6 +46,12 @@ impl SymbolTable {
         self.analyze_expr(lhs)?;
         self.analyze_expr(rhs)?;
       }
+      Expr::Dict(entries) => {
+        for entry in entries {
+          self.analyze_expr(&entry.key)?;
+          self.analyze_expr(&entry.value)?;
+        }
+      }
       Expr::FormattedString(expressions) => {
         for expr in expressions {
           self.analyze_expr(expr)?;

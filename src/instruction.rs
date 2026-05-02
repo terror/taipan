@@ -17,6 +17,7 @@ pub enum Instruction {
   BinaryRShift,
   BinarySub,
   BinarySubscript,
+  BuildDict(u16),
   BuildList(u16),
   BuildString(u16),
   BuildTuple(u16),
