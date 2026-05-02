@@ -21,48 +21,6 @@ pub(crate) struct Frame {
 }
 
 impl Frame {
-  pub(crate) fn build_dict(&mut self, count: u16) -> Result {
-    let items = self
-      .pop_items(usize::from(count).checked_mul(2).ok_or(Error::Overflow)?)?;
-
-    let entries = items
-      .chunks_exact(2)
-      .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
-      .collect();
-
-    self.push(Object::dict(entries));
-
-    Ok(())
-  }
-
-  pub(crate) fn build_list(&mut self, count: u16) -> Result {
-    let elements = self.pop_items(usize::from(count))?;
-
-    self.push(Object::list(elements));
-
-    Ok(())
-  }
-
-  pub(crate) fn build_string(&mut self, count: u16) -> Result {
-    let parts = self
-      .pop_items(usize::from(count))?
-      .iter()
-      .map(ToString::to_string)
-      .collect::<String>();
-
-    self.push(Object::Str(parts));
-
-    Ok(())
-  }
-
-  pub(crate) fn build_tuple(&mut self, count: u16) -> Result {
-    let elements = self.pop_items(usize::from(count))?;
-
-    self.push(Object::tuple(elements));
-
-    Ok(())
-  }
-
   pub(crate) fn capture_cell(
     &self,
     name: &str,
@@ -246,7 +204,7 @@ impl Frame {
     )
   }
 
-  fn pop_items(&mut self, count: usize) -> Result<Vec<Object>> {
+  pub(crate) fn pop_items(&mut self, count: usize) -> Result<Vec<Object>> {
     let start =
       self
         .stack
