@@ -3,15 +3,15 @@
 */
 
 export interface Cell {
-	cell_type: string;
-	source: string | string[];
-	metadata: Record<string, unknown>;
-	id?: string;
+  cell_type: string;
+  source: string | string[];
+  metadata: Record<string, unknown>;
+  id?: string;
 }
 
 export interface Notebook {
-	cells: Cell[];
-	metadata: Record<string, unknown>;
-	nbformat: number;
-	nbformat_minor: number;
+  cells: Cell[];
+  metadata: Record<string, unknown>;
+  nbformat: number;
+  nbformat_minor: number;
 }

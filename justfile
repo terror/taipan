@@ -19,6 +19,7 @@ dev:
 
 [group: 'format']
 fmt:
+  bun x prettier --write . --ignore-unknown
   cargo fmt --manifest-path src-tauri/Cargo.toml
 
 [group: 'dev']

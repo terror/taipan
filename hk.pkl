@@ -1,0 +1,29 @@
+amends "package://github.com/jdx/hk/releases/download/v1.46.0/hk@1.46.0#/Config.pkl"
+
+local hook_steps = new Mapping<String, Step> {
+  ["cargo-fmt"] {
+    check = "cargo fmt --manifest-path src-tauri/Cargo.toml --check -- {{files}}"
+    fix = "cargo fmt --manifest-path src-tauri/Cargo.toml -- {{files}}"
+    glob = "**/*.rs"
+  }
+  ["prettier"] {
+    check = "bun x prettier --check {{files}}"
+    fix = "bun x prettier --write {{files}}"
+    glob = "**/*.{js,json,ts,tsx}"
+  }
+}
+
+hooks {
+  ["check"] {
+    steps = hook_steps
+  }
+  ["fix"] {
+    fix = true
+    steps = hook_steps
+  }
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps = hook_steps
+  }
+}
