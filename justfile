@@ -29,4 +29,4 @@ test:
 
 [group: 'dev']
 typeshare:
-  typeshare --lang typescript --output-file src/lib/types.ts src-tauri
+  typeshare --config-file typeshare.toml --lang typescript --output-file src/lib/types.ts src-tauri

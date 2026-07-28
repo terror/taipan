@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 
-import type { Notebook, NotebookCell } from './types';
+import type { CodeCell, Notebook, NotebookCell, Source } from './types';
 
 export interface NotebookSession {
   path: string;
@@ -17,8 +17,12 @@ export function saveNotebook(path: string, notebook: Notebook): Promise<void> {
   return invoke('save_notebook', { path, notebook });
 }
 
-export function sourceText(source: NotebookCell['source']): string {
-  return Array.isArray(source) ? source.join('') : source;
+export function isCodeCell(cell: NotebookCell): cell is CodeCell {
+  return cell.cell_type === 'code';
+}
+
+export function sourceText(source: Source | undefined): string {
+  return Array.isArray(source) ? source.join('') : (source ?? '');
 }
 
 export function updateCellSource(

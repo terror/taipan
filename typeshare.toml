@@ -1,0 +1,6 @@
+[typescript.type_mappings]
+MultilineString = "string | string[]"
+NullableExecutionCount = "number | null"
+NotebookCellType = "CodeCell | MarkdownCell | RawCell | UnknownCell"
+NotebookOutputType = "DisplayDataOutput | ErrorOutput | ExecuteResultOutput | StreamOutput"
+Value = "unknown"

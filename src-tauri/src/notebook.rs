@@ -1,5 +1,15 @@
 use super::*;
 
+#[typeshare(serialized_as = "HashMap<String, MimeBundle>")]
+pub type Attachments = BTreeMap<String, MimeBundle>;
+
+#[typeshare(serialized_as = "HashMap<String, Value>")]
+pub type Metadata = Map<String, Value>;
+
+#[typeshare(serialized_as = "HashMap<String, Value>")]
+pub type MimeBundle = Map<String, Value>;
+
+#[typeshare(serialized_as = "MultilineString")]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum Source {
@@ -9,17 +19,192 @@ pub enum Source {
 
 #[typeshare]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct NotebookCell {
+pub struct CodeCell {
+  #[typeshare(typescript(type = "\"code\""))]
+  pub cell_type: String,
+  pub execution_count: ExecutionCount,
+  #[typeshare(skip)]
+  #[serde(flatten)]
+  pub extra: Map<String, Value>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub id: Option<String>,
+  pub metadata: Metadata,
+  pub outputs: Vec<NotebookOutput>,
+  pub source: Source,
+}
+
+#[typeshare]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct DisplayDataOutput {
+  pub data: MimeBundle,
+  #[typeshare(skip)]
+  #[serde(flatten)]
+  pub extra: Map<String, Value>,
+  pub metadata: Metadata,
+  #[typeshare(typescript(type = "\"display_data\""))]
+  pub output_type: String,
+}
+
+#[typeshare]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ErrorOutput {
+  pub ename: String,
+  pub evalue: String,
+  #[typeshare(skip)]
+  #[serde(flatten)]
+  pub extra: Map<String, Value>,
+  #[typeshare(typescript(type = "\"error\""))]
+  pub output_type: String,
+  pub traceback: Vec<String>,
+}
+
+#[typeshare(serialized_as = "NullableExecutionCount")]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct ExecutionCount(pub Option<U53>);
+
+#[typeshare]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ExecuteResultOutput {
+  pub data: MimeBundle,
+  pub execution_count: ExecutionCount,
+  #[typeshare(skip)]
+  #[serde(flatten)]
+  pub extra: Map<String, Value>,
+  pub metadata: Metadata,
+  #[typeshare(typescript(type = "\"execute_result\""))]
+  pub output_type: String,
+}
+
+#[typeshare]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct MarkdownCell {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub attachments: Option<Attachments>,
+  #[typeshare(typescript(type = "\"markdown\""))]
   pub cell_type: String,
   #[typeshare(skip)]
   #[serde(flatten)]
   pub extra: Map<String, Value>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub id: Option<String>,
-  #[typeshare(typescript(type = "Record<string, unknown>"))]
-  pub metadata: Map<String, Value>,
-  #[typeshare(typescript(type = "string | string[]"))]
+  pub metadata: Metadata,
   pub source: Source,
+}
+
+#[typeshare(serialized_as = "NotebookCellType")]
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum NotebookCell {
+  Code(CodeCell),
+  Markdown(MarkdownCell),
+  Raw(RawCell),
+  Unknown(UnknownCell),
+}
+
+impl<'de> Deserialize<'de> for NotebookCell {
+  fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+  where
+    D: serde::Deserializer<'de>,
+  {
+    let value = Value::deserialize(deserializer)?;
+
+    let cell_type = value
+      .get("cell_type")
+      .and_then(Value::as_str)
+      .ok_or_else(|| de::Error::custom("cell_type must be a string"))?
+      .to_owned();
+
+    match cell_type.as_str() {
+      "code" => serde_json::from_value(value).map(Self::Code),
+      "markdown" => serde_json::from_value(value).map(Self::Markdown),
+      "raw" => serde_json::from_value(value).map(Self::Raw),
+      _ => serde_json::from_value(value).map(Self::Unknown),
+    }
+    .map_err(de::Error::custom)
+  }
+}
+
+#[typeshare(serialized_as = "NotebookOutputType")]
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum NotebookOutput {
+  DisplayData(DisplayDataOutput),
+  Error(ErrorOutput),
+  ExecuteResult(ExecuteResultOutput),
+  Stream(StreamOutput),
+}
+
+impl<'de> Deserialize<'de> for NotebookOutput {
+  fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+  where
+    D: serde::Deserializer<'de>,
+  {
+    let value = Value::deserialize(deserializer)?;
+
+    let output_type = value
+      .get("output_type")
+      .and_then(Value::as_str)
+      .ok_or_else(|| de::Error::custom("output_type must be a string"))?
+      .to_owned();
+
+    match output_type.as_str() {
+      "display_data" => serde_json::from_value(value).map(Self::DisplayData),
+      "error" => serde_json::from_value(value).map(Self::Error),
+      "execute_result" => {
+        serde_json::from_value(value).map(Self::ExecuteResult)
+      }
+      "stream" => serde_json::from_value(value).map(Self::Stream),
+      _ => {
+        return Err(de::Error::custom(format!(
+          "unsupported notebook output type `{output_type}`"
+        )));
+      }
+    }
+    .map_err(de::Error::custom)
+  }
+}
+
+#[typeshare]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct RawCell {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub attachments: Option<Attachments>,
+  #[typeshare(typescript(type = "\"raw\""))]
+  pub cell_type: String,
+  #[typeshare(skip)]
+  #[serde(flatten)]
+  pub extra: Map<String, Value>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub id: Option<String>,
+  pub metadata: Metadata,
+  pub source: Source,
+}
+
+#[typeshare]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct StreamOutput {
+  #[typeshare(skip)]
+  #[serde(flatten)]
+  pub extra: Map<String, Value>,
+  pub name: String,
+  #[typeshare(typescript(type = "\"stream\""))]
+  pub output_type: String,
+  pub text: Source,
+}
+
+#[typeshare]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct UnknownCell {
+  pub cell_type: String,
+  #[typeshare(skip)]
+  #[serde(flatten)]
+  pub extra: Map<String, Value>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub id: Option<String>,
+  pub metadata: Metadata,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub source: Option<Source>,
 }
 
 #[typeshare]
@@ -29,8 +214,7 @@ pub struct Notebook {
   #[typeshare(skip)]
   #[serde(flatten)]
   pub extra: Map<String, Value>,
-  #[typeshare(typescript(type = "Record<string, unknown>"))]
-  pub metadata: Map<String, Value>,
+  pub metadata: Metadata,
   pub nbformat: U53,
   pub nbformat_minor: U53,
 }
@@ -139,7 +323,57 @@ mod tests {
   const FIXTURE: &str = include_str!("../tests/fixtures/round-trip.ipynb");
 
   #[test]
-  fn round_trip_preserves_notebook() {
+  fn parses_all_cell_and_output_variants() {
+    let notebook = serde_json::from_str::<Notebook>(FIXTURE).unwrap();
+
+    assert!(matches!(notebook.cells[1], NotebookCell::Markdown(_)));
+    assert!(matches!(notebook.cells[2], NotebookCell::Raw(_)));
+    assert!(matches!(notebook.cells[3], NotebookCell::Unknown(_)));
+
+    let NotebookCell::Code(code) = &notebook.cells[0] else {
+      panic!();
+    };
+
+    assert!(matches!(
+      code.outputs.as_slice(),
+      [
+        NotebookOutput::Stream(_),
+        NotebookOutput::Error(_),
+        NotebookOutput::ExecuteResult(_),
+        NotebookOutput::DisplayData(_),
+      ]
+    ));
+
+    let NotebookOutput::ExecuteResult(output) = &code.outputs[2] else {
+      panic!();
+    };
+
+    assert_eq!(output.data["application/x-unsupported"], 42);
+
+    let NotebookCell::Markdown(markdown) = &notebook.cells[1] else {
+      panic!();
+    };
+
+    assert_eq!(
+      markdown.attachments.as_ref().unwrap()["foo.png"]["application/x-unsupported"],
+      false
+    );
+  }
+
+  #[test]
+  fn rejects_transient_output() {
+    assert!(
+      serde_json::from_value::<NotebookOutput>(serde_json::json!({
+        "data": {},
+        "metadata": {},
+        "output_type": "update_display_data"
+      }))
+      .is_err()
+    );
+  }
+
+  #[test]
+  fn round_trip_preserves_all_notebook_data() {
     let notebook = serde_json::from_str::<Notebook>(FIXTURE).unwrap();
 
     assert_eq!(
@@ -156,7 +390,11 @@ mod tests {
     fs::write(&path, FIXTURE).unwrap();
 
     let mut notebook = Notebook::open(&path).unwrap();
-    notebook.cells[0].source = Source::Text("bar".into());
+    let NotebookCell::Code(cell) = &mut notebook.cells[0] else {
+      panic!();
+    };
+
+    cell.source = Source::Text("bar".into());
 
     notebook.save(&path).unwrap();
 
