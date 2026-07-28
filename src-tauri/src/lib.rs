@@ -1,9 +1,10 @@
 use {
   error::Error,
   notebook::Notebook,
-  serde::{Deserialize, Serialize, Serializer},
+  serde::{Deserialize, Serialize, Serializer, de},
   serde_json::{Map, Value},
   std::{
+    collections::BTreeMap,
     fs::{self, File},
     io::{self, BufReader, BufWriter, Write},
     path::{Path, PathBuf},

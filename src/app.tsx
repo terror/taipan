@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import {
   type NotebookSession,
+  isCodeCell,
   openNotebook,
   saveNotebook,
   sourceText,
@@ -177,9 +178,8 @@ export function App() {
 
               <div className='space-y-4'>
                 {session.notebook.cells.map((cell, index) => {
-                  const outputs = Reflect.get(cell, 'outputs');
-                  const outputCount = Array.isArray(outputs)
-                    ? outputs.length
+                  const outputCount = isCodeCell(cell)
+                    ? cell.outputs.length
                     : 0;
 
                   return (
