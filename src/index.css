@@ -28,6 +28,15 @@
   --muted-foreground: oklch(0.556 0 0);
   --border: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+  --editor-active-line: oklch(0.97 0 0 / 65%);
+  --editor-selection: oklch(0.8 0.08 250 / 45%);
+  --editor-syntax-comment: oklch(0.5 0 0);
+  --editor-syntax-function: oklch(0.45 0.16 260);
+  --editor-syntax-keyword: oklch(0.46 0.18 300);
+  --editor-syntax-link: oklch(0.48 0.15 240);
+  --editor-syntax-number: oklch(0.48 0.15 40);
+  --editor-syntax-string: oklch(0.43 0.12 145);
+  --editor-syntax-type: oklch(0.45 0.14 210);
   --radius: 0.625rem;
   font-family:
     Inter,
@@ -51,6 +60,15 @@
     --muted-foreground: oklch(0.708 0 0);
     --border: oklch(1 0 0 / 10%);
     --ring: oklch(0.556 0 0);
+    --editor-active-line: oklch(1 0 0 / 4%);
+    --editor-selection: oklch(0.58 0.12 250 / 45%);
+    --editor-syntax-comment: oklch(0.65 0 0);
+    --editor-syntax-function: oklch(0.76 0.12 255);
+    --editor-syntax-keyword: oklch(0.76 0.14 305);
+    --editor-syntax-link: oklch(0.78 0.11 235);
+    --editor-syntax-number: oklch(0.78 0.12 55);
+    --editor-syntax-string: oklch(0.76 0.11 145);
+    --editor-syntax-type: oklch(0.78 0.1 205);
   }
 }
 

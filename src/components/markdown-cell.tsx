@@ -1,3 +1,4 @@
+import { CellEditor } from '@/components/cell-editor';
 import { RichContent } from '@/components/rich-content';
 import { renderMarkdown } from '@/lib/rich-content';
 import type { MarkdownCell } from '@/lib/types';
@@ -45,12 +46,11 @@ export function MarkdownCellView({
           html={renderMarkdown(source, cell.attachments)}
         />
       ) : (
-        <textarea
-          className='block min-h-28 w-full resize-y border-t border-zinc-200 bg-transparent px-3 py-3 text-[13px] leading-6 outline-none select-text sm:px-4 dark:border-zinc-800'
-          aria-label={`markdown cell ${index + 1}`}
-          value={source}
-          onChange={(event) => onChange(event.target.value)}
-          spellCheck
+        <CellEditor
+          ariaLabel={`markdown cell ${index + 1}`}
+          language='markdown'
+          source={source}
+          onChange={onChange}
         />
       )}
     </>
