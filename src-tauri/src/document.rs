@@ -1,12 +1,4 @@
-use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
-use std::{
-  fs::{self, File},
-  io::{BufReader, BufWriter, Write},
-  path::Path,
-};
-use tempfile::Builder;
-use typeshare::{U53, typeshare};
+use super::*;
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
@@ -143,7 +135,10 @@ mod tests {
   fn round_trip_preserves_notebook() {
     let notebook = serde_json::from_str::<NotebookDocument>(FIXTURE).unwrap();
 
-    assert_eq!(serde_json::to_value(notebook).unwrap(), serde_json::from_str::<Value>(FIXTURE).unwrap());
+    assert_eq!(
+      serde_json::to_value(notebook).unwrap(),
+      serde_json::from_str::<Value>(FIXTURE).unwrap()
+    );
   }
 
   #[test]
