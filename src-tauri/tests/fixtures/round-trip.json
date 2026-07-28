@@ -19,29 +19,19 @@
           "stream_extension": {
             "foo": "bar"
           },
-          "text": [
-            "foo\n",
-            "bar\n"
-          ]
+          "text": ["foo\n", "bar\n"]
         },
         {
           "ename": "ValueError",
           "error_extension": true,
           "evalue": "foo",
           "output_type": "error",
-          "traceback": [
-            "foo\n",
-            "bar"
-          ]
+          "traceback": ["foo\n", "bar"]
         },
         {
           "data": {
             "application/json": {
-              "foo": [
-                true,
-                null,
-                3
-              ]
+              "foo": [true, null, 3]
             },
             "application/vnd.taipan+json": [
               "foo",
@@ -52,9 +42,7 @@
             "application/x-unsupported": 42,
             "text/plain": "3"
           },
-          "execute_extension": [
-            "foo"
-          ],
+          "execute_extension": ["foo"],
           "execution_count": null,
           "metadata": {
             "custom": "foo"
@@ -67,9 +55,7 @@
               "foo": "bar"
             },
             "image/png": "Zm9v",
-            "text/plain": [
-              "foo\n"
-            ]
+            "text/plain": ["foo\n"]
           },
           "display_extension": false,
           "metadata": {
@@ -81,9 +67,7 @@
           "output_type": "display_data"
         }
       ],
-      "source": [
-        "print(\"foo\")\n"
-      ]
+      "source": ["print(\"foo\")\n"]
     },
     {
       "attachments": {
@@ -104,10 +88,7 @@
       "attachments": {
         "foo.txt": {
           "application/octet-stream": null,
-          "text/plain": [
-            "foo\n",
-            "bar"
-          ]
+          "text/plain": ["foo\n", "bar"]
         }
       },
       "cell_type": "raw",
@@ -115,27 +96,18 @@
       "metadata": {
         "format": "text/plain"
       },
-      "source": [
-        "foo\n",
-        "bar"
-      ]
+      "source": ["foo\n", "bar"]
     },
     {
       "cell_type": "future_cell",
       "future_extension": {
-        "foo": [
-          1,
-          true,
-          null
-        ]
+        "foo": [1, true, null]
       },
       "id": "future",
       "metadata": {
         "custom": "bar"
       },
-      "source": [
-        "foo\n"
-      ]
+      "source": ["foo\n"]
     }
   ],
   "metadata": {
