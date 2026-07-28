@@ -35,99 +35,101 @@ pub struct Notebook {
   pub extra: Map<String, Value>,
 }
 
-pub fn open(path: &Path) -> Result<Notebook> {
-  let file = File::open(path).map_err(|source| Error::Open {
-    path: path.into(),
-    source,
-  })?;
-
-  let notebook = serde_json::from_reader::<_, Notebook>(BufReader::new(file))
-    .map_err(|source| Error::Parse {
-    path: path.into(),
-    source,
-  })?;
-
-  if notebook.nbformat != 4 {
-    return Err(Error::UnsupportedFormat {
-      format: notebook.nbformat,
+impl Notebook {
+  pub fn open(path: &Path) -> Result<Self> {
+    let file = File::open(path).map_err(|source| Error::Open {
       path: path.into(),
-    });
+      source,
+    })?;
+
+    let notebook = serde_json::from_reader::<_, Self>(BufReader::new(file))
+      .map_err(|source| Error::Parse {
+        path: path.into(),
+        source,
+      })?;
+
+    if notebook.nbformat != 4 {
+      return Err(Error::UnsupportedFormat {
+        format: notebook.nbformat,
+        path: path.into(),
+      });
+    }
+
+    Ok(notebook)
   }
 
-  Ok(notebook)
-}
+  pub fn save(&self, path: &Path) -> Result {
+    if self.nbformat != 4 {
+      return Err(Error::UnsupportedSaveFormat {
+        format: self.nbformat,
+      });
+    }
 
-pub fn save(path: &Path, notebook: &Notebook) -> Result {
-  if notebook.nbformat != 4 {
-    return Err(Error::UnsupportedSaveFormat {
-      format: notebook.nbformat,
-    });
-  }
+    let parent = path
+      .parent()
+      .filter(|parent| !parent.as_os_str().is_empty())
+      .unwrap_or_else(|| Path::new("."));
 
-  let parent = path
-    .parent()
-    .filter(|parent| !parent.as_os_str().is_empty())
-    .unwrap_or_else(|| Path::new("."));
-
-  let mut temporary = Builder::new()
-    .prefix(".taipan-")
-    .tempfile_in(parent)
-    .map_err(|source| Error::CreateTemporary {
+    let mut temporary = Builder::new()
+      .prefix(".taipan-")
+      .tempfile_in(parent)
+      .map_err(|source| Error::CreateTemporary {
       path: parent.into(),
       source,
     })?;
 
-  if let Ok(metadata) = fs::metadata(path) {
+    if let Ok(metadata) = fs::metadata(path) {
+      temporary
+        .as_file()
+        .set_permissions(metadata.permissions())
+        .map_err(|source| Error::PreservePermissions {
+          path: path.into(),
+          source,
+        })?;
+    }
+
+    {
+      let mut writer = BufWriter::new(temporary.as_file_mut());
+
+      serde_json::to_writer_pretty(&mut writer, self).map_err(|source| {
+        Error::Serialize {
+          path: path.into(),
+          source,
+        }
+      })?;
+
+      writer
+        .write_all(b"\n")
+        .and_then(|()| writer.flush())
+        .map_err(|source| Error::Write {
+          path: path.into(),
+          source,
+        })?;
+    }
+
     temporary
       .as_file()
-      .set_permissions(metadata.permissions())
-      .map_err(|source| Error::PreservePermissions {
+      .sync_all()
+      .map_err(|source| Error::Flush {
         path: path.into(),
         source,
       })?;
-  }
 
-  {
-    let mut writer = BufWriter::new(temporary.as_file_mut());
-
-    serde_json::to_writer_pretty(&mut writer, notebook).map_err(|source| {
-      Error::Serialize {
-        path: path.into(),
-        source,
-      }
-    })?;
-
-    writer
-      .write_all(b"\n")
-      .and_then(|()| writer.flush())
-      .map_err(|source| Error::Write {
-        path: path.into(),
-        source,
-      })?;
-  }
-
-  temporary
-    .as_file()
-    .sync_all()
-    .map_err(|source| Error::Flush {
+    temporary.persist(path).map_err(|error| Error::Replace {
       path: path.into(),
-      source,
+      source: error.error,
     })?;
 
-  temporary.persist(path).map_err(|error| Error::Replace {
-    path: path.into(),
-    source: error.error,
-  })?;
+    #[cfg(unix)]
+    File::open(parent)
+      .and_then(|directory| directory.sync_all())
+      .map_err(|source| Error::Flush {
+        path: parent.into(),
+        source,
+      })?;
 
-  #[cfg(unix)]
-  File::open(parent)
-    .and_then(|directory| directory.sync_all())
-    .map_err(|source| Error::Flush {
-      path: parent.into(),
-      source,
-    })?;
-
-  Ok(())
+    Ok(())
+  }
 }
 
 #[cfg(test)]
@@ -153,12 +155,12 @@ mod tests {
     let path = directory.path().join("foo.ipynb");
     fs::write(&path, FIXTURE).unwrap();
 
-    let mut notebook = open(&path).unwrap();
+    let mut notebook = Notebook::open(&path).unwrap();
     notebook.cells[0].source = Source::Text("bar".into());
 
-    save(&path, &notebook).unwrap();
+    notebook.save(&path).unwrap();
 
-    let actual = serde_json::to_value(open(&path).unwrap()).unwrap();
+    let actual = serde_json::to_value(Notebook::open(&path).unwrap()).unwrap();
 
     let mut expected = serde_json::from_str::<Value>(FIXTURE).unwrap();
     expected["cells"][0]["source"] = Value::String("bar".into());
@@ -175,6 +177,9 @@ mod tests {
     fs::write(&path, FIXTURE.replace("\"nbformat\": 4", "\"nbformat\": 3"))
       .unwrap();
 
-    assert!(matches!(open(&path), Err(Error::UnsupportedFormat { .. })));
+    assert!(matches!(
+      Notebook::open(&path),
+      Err(Error::UnsupportedFormat { .. })
+    ));
   }
 }

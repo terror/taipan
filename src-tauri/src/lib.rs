@@ -20,14 +20,14 @@ type Result<T = (), E = Error> = std::result::Result<T, E>;
 
 #[tauri::command]
 async fn open_notebook(path: PathBuf) -> Result<Notebook> {
-  tauri::async_runtime::spawn_blocking(move || notebook::open(&path))
+  tauri::async_runtime::spawn_blocking(move || Notebook::open(&path))
     .await
     .map_err(Error::Task)?
 }
 
 #[tauri::command]
 async fn save_notebook(path: PathBuf, notebook: Notebook) -> Result {
-  tauri::async_runtime::spawn_blocking(move || notebook::save(&path, &notebook))
+  tauri::async_runtime::spawn_blocking(move || notebook.save(&path))
     .await
     .map_err(Error::Task)?
 }
