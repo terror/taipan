@@ -320,7 +320,7 @@ impl Notebook {
 mod tests {
   use super::*;
 
-  const FIXTURE: &str = include_str!("../tests/fixtures/round-trip.ipynb");
+  const FIXTURE: &str = include_str!("../tests/fixtures/round-trip.json");
 
   #[test]
   fn parses_all_cell_and_output_variants() {
