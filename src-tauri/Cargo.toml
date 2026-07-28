@@ -9,6 +9,14 @@ edition = "2024"
 name = "taipan_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+arbitrary-source-item-ordering = "deny"
+pedantic = { level = "deny", priority = -1 }
+struct_field_names = "allow"
+too_many_lines = "allow"
+wildcard_imports = "allow"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

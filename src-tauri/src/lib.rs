@@ -32,6 +32,9 @@ async fn save_notebook(path: PathBuf, notebook: Notebook) -> Result {
     .map_err(Error::Task)?
 }
 
+/// # Panics
+///
+/// Panics if the Tauri application cannot run.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()

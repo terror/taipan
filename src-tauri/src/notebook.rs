@@ -3,36 +3,36 @@ use super::*;
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum Source {
-  Text(String),
   Lines(Vec<String>),
+  Text(String),
 }
 
 #[typeshare]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Cell {
   pub cell_type: String,
-  #[typeshare(typescript(type = "string | string[]"))]
-  pub source: Source,
-  #[typeshare(typescript(type = "Record<string, unknown>"))]
-  pub metadata: Map<String, Value>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub id: Option<String>,
   #[typeshare(skip)]
   #[serde(flatten)]
   pub extra: Map<String, Value>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub id: Option<String>,
+  #[typeshare(typescript(type = "Record<string, unknown>"))]
+  pub metadata: Map<String, Value>,
+  #[typeshare(typescript(type = "string | string[]"))]
+  pub source: Source,
 }
 
 #[typeshare]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Notebook {
   pub cells: Vec<Cell>,
+  #[typeshare(skip)]
+  #[serde(flatten)]
+  pub extra: Map<String, Value>,
   #[typeshare(typescript(type = "Record<string, unknown>"))]
   pub metadata: Map<String, Value>,
   pub nbformat: U53,
   pub nbformat_minor: U53,
-  #[typeshare(skip)]
-  #[serde(flatten)]
-  pub extra: Map<String, Value>,
 }
 
 impl Notebook {
