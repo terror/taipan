@@ -9,7 +9,7 @@ pub enum Source {
 
 #[typeshare]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct Cell {
+pub struct NotebookCell {
   pub cell_type: String,
   #[typeshare(skip)]
   #[serde(flatten)]
@@ -25,7 +25,7 @@ pub struct Cell {
 #[typeshare]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Notebook {
-  pub cells: Vec<Cell>,
+  pub cells: Vec<NotebookCell>,
   #[typeshare(skip)]
   #[serde(flatten)]
   pub extra: Map<String, Value>,
