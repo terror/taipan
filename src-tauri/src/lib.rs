@@ -1,33 +1,36 @@
 use {
   document::NotebookDocument,
-  serde::{Deserialize, Serialize},
+  error::Error,
+  serde::{Deserialize, Serialize, Serializer},
   serde_json::{Map, Value},
   std::{
     fs::{self, File},
-    io::{BufReader, BufWriter, Write},
+    io::{self, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
   },
   tempfile::Builder,
+  thiserror::Error,
   typeshare::{U53, typeshare},
 };
 
 mod document;
+mod error;
 
 #[tauri::command]
-async fn open_notebook(path: PathBuf) -> Result<NotebookDocument, String> {
+async fn open_notebook(path: PathBuf) -> Result<NotebookDocument, Error> {
   tauri::async_runtime::spawn_blocking(move || document::open(&path))
     .await
-    .map_err(|error| format!("notebook task failed: {error}"))?
+    .map_err(Error::Task)?
 }
 
 #[tauri::command]
 async fn save_notebook(
   path: PathBuf,
   notebook: NotebookDocument,
-) -> Result<(), String> {
+) -> Result<(), Error> {
   tauri::async_runtime::spawn_blocking(move || document::save(&path, &notebook))
     .await
-    .map_err(|error| format!("notebook task failed: {error}"))?
+    .map_err(Error::Task)?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

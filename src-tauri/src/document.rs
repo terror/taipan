@@ -35,33 +35,34 @@ pub struct NotebookDocument {
   pub extra: Map<String, Value>,
 }
 
-pub fn open(path: &Path) -> Result<NotebookDocument, String> {
-  let file = File::open(path)
-    .map_err(|error| format!("failed to open {}: {error}", path.display()))?;
+pub fn open(path: &Path) -> Result<NotebookDocument, Error> {
+  let file = File::open(path).map_err(|source| Error::Open {
+    path: path.into(),
+    source,
+  })?;
 
   let notebook =
     serde_json::from_reader::<_, NotebookDocument>(BufReader::new(file))
-      .map_err(|error| {
-        format!("failed to parse {}: {error}", path.display())
+      .map_err(|source| Error::Parse {
+        path: path.into(),
+        source,
       })?;
 
   if notebook.nbformat != 4 {
-    return Err(format!(
-      "unsupported notebook format {} in {}",
-      notebook.nbformat,
-      path.display()
-    ));
+    return Err(Error::UnsupportedFormat {
+      format: notebook.nbformat,
+      path: path.into(),
+    });
   }
 
   Ok(notebook)
 }
 
-pub fn save(path: &Path, notebook: &NotebookDocument) -> Result<(), String> {
+pub fn save(path: &Path, notebook: &NotebookDocument) -> Result<(), Error> {
   if notebook.nbformat != 4 {
-    return Err(format!(
-      "cannot save unsupported notebook format {}",
-      notebook.nbformat
-    ));
+    return Err(Error::UnsupportedSaveFormat {
+      format: notebook.nbformat,
+    });
   }
 
   let parent = path
@@ -72,54 +73,59 @@ pub fn save(path: &Path, notebook: &NotebookDocument) -> Result<(), String> {
   let mut temporary = Builder::new()
     .prefix(".taipan-")
     .tempfile_in(parent)
-    .map_err(|error| {
-      format!(
-        "failed to create temporary file in {}: {error}",
-        parent.display()
-      )
+    .map_err(|source| Error::CreateTemporary {
+      path: parent.into(),
+      source,
     })?;
 
   if let Ok(metadata) = fs::metadata(path) {
     temporary
       .as_file()
       .set_permissions(metadata.permissions())
-      .map_err(|error| {
-        format!(
-          "failed to preserve permissions for {}: {error}",
-          path.display()
-        )
+      .map_err(|source| Error::PreservePermissions {
+        path: path.into(),
+        source,
       })?;
   }
 
   {
     let mut writer = BufWriter::new(temporary.as_file_mut());
 
-    serde_json::to_writer_pretty(&mut writer, notebook).map_err(|error| {
-      format!("failed to serialize {}: {error}", path.display())
+    serde_json::to_writer_pretty(&mut writer, notebook).map_err(|source| {
+      Error::Serialize {
+        path: path.into(),
+        source,
+      }
     })?;
 
     writer
       .write_all(b"\n")
       .and_then(|()| writer.flush())
-      .map_err(|error| {
-        format!("failed to write {}: {error}", path.display())
+      .map_err(|source| Error::Write {
+        path: path.into(),
+        source,
       })?;
   }
 
   temporary
     .as_file()
     .sync_all()
-    .map_err(|error| format!("failed to flush {}: {error}", path.display()))?;
+    .map_err(|source| Error::Flush {
+      path: path.into(),
+      source,
+    })?;
 
-  temporary.persist(path).map_err(|error| {
-    format!("failed to replace {}: {}", path.display(), error.error)
+  temporary.persist(path).map_err(|error| Error::Replace {
+    path: path.into(),
+    source: error.error,
   })?;
 
   #[cfg(unix)]
   File::open(parent)
     .and_then(|directory| directory.sync_all())
-    .map_err(|error| {
-      format!("failed to flush {}: {error}", parent.display())
+    .map_err(|source| Error::Flush {
+      path: parent.into(),
+      source,
     })?;
 
   Ok(())
@@ -170,10 +176,6 @@ mod tests {
     fs::write(&path, FIXTURE.replace("\"nbformat\": 4", "\"nbformat\": 3"))
       .unwrap();
 
-    assert!(
-      open(&path)
-        .unwrap_err()
-        .contains("unsupported notebook format 3")
-    );
+    assert!(matches!(open(&path), Err(Error::UnsupportedFormat { .. })));
   }
 }

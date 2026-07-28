@@ -18,4 +18,5 @@ serde_json = "1.0.151"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2.7.2"
 tempfile = "3.27.0"
+thiserror = "2.0.19"
 typeshare = { version = "1.0.5", default-features = false }
