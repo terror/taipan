@@ -1,10 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { NotebookDocument } from "@/lib/types";
+import type { Notebook } from "@/lib/types";
 
-export function openNotebook(path: string): Promise<NotebookDocument> {
-  return invoke<NotebookDocument>("open_notebook", { path });
+export function openNotebook(path: string): Promise<Notebook> {
+  return invoke<Notebook>("open_notebook", { path });
 }
 
-export function saveNotebook(path: string, notebook: NotebookDocument): Promise<void> {
+export function saveNotebook(path: string, notebook: Notebook): Promise<void> {
   return invoke("save_notebook", { path, notebook });
 }

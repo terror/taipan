@@ -9,7 +9,7 @@ pub enum Source {
 
 #[typeshare]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct NotebookCell {
+pub struct Cell {
   pub cell_type: String,
   #[typeshare(typescript(type = "string | string[]"))]
   pub source: Source,
@@ -24,8 +24,8 @@ pub struct NotebookCell {
 
 #[typeshare]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct NotebookDocument {
-  pub cells: Vec<NotebookCell>,
+pub struct Notebook {
+  pub cells: Vec<Cell>,
   #[typeshare(typescript(type = "Record<string, unknown>"))]
   pub metadata: Map<String, Value>,
   pub nbformat: U53,
@@ -35,18 +35,17 @@ pub struct NotebookDocument {
   pub extra: Map<String, Value>,
 }
 
-pub fn open(path: &Path) -> Result<NotebookDocument> {
+pub fn open(path: &Path) -> Result<Notebook> {
   let file = File::open(path).map_err(|source| Error::Open {
     path: path.into(),
     source,
   })?;
 
-  let notebook =
-    serde_json::from_reader::<_, NotebookDocument>(BufReader::new(file))
-      .map_err(|source| Error::Parse {
-        path: path.into(),
-        source,
-      })?;
+  let notebook = serde_json::from_reader::<_, Notebook>(BufReader::new(file))
+    .map_err(|source| Error::Parse {
+    path: path.into(),
+    source,
+  })?;
 
   if notebook.nbformat != 4 {
     return Err(Error::UnsupportedFormat {
@@ -58,7 +57,7 @@ pub fn open(path: &Path) -> Result<NotebookDocument> {
   Ok(notebook)
 }
 
-pub fn save(path: &Path, notebook: &NotebookDocument) -> Result {
+pub fn save(path: &Path, notebook: &Notebook) -> Result {
   if notebook.nbformat != 4 {
     return Err(Error::UnsupportedSaveFormat {
       format: notebook.nbformat,
@@ -139,7 +138,7 @@ mod tests {
 
   #[test]
   fn round_trip_preserves_notebook() {
-    let notebook = serde_json::from_str::<NotebookDocument>(FIXTURE).unwrap();
+    let notebook = serde_json::from_str::<Notebook>(FIXTURE).unwrap();
 
     assert_eq!(
       serde_json::to_value(notebook).unwrap(),

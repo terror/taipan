@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { sourceText, updateCellSource } from "../src/lib/notebook-model";
-import type { NotebookCell, NotebookDocument } from "../src/lib/types";
+import type { Cell, Notebook } from "../src/lib/types";
 
-type NotebookFixture = NotebookDocument & {
-  cells: (NotebookCell & Record<string, unknown>)[];
+type NotebookFixture = Notebook & {
+  cells: (Cell & Record<string, unknown>)[];
   unknown: string;
 };
 

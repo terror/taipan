@@ -1,6 +1,6 @@
 use {
-  document::NotebookDocument,
   error::Error,
+  notebook::Notebook,
   serde::{Deserialize, Serialize, Serializer},
   serde_json::{Map, Value},
   std::{
@@ -13,21 +13,21 @@ use {
   typeshare::{U53, typeshare},
 };
 
-mod document;
 mod error;
+mod notebook;
 
 type Result<T = (), E = Error> = std::result::Result<T, E>;
 
 #[tauri::command]
-async fn open_notebook(path: PathBuf) -> Result<NotebookDocument> {
-  tauri::async_runtime::spawn_blocking(move || document::open(&path))
+async fn open_notebook(path: PathBuf) -> Result<Notebook> {
+  tauri::async_runtime::spawn_blocking(move || notebook::open(&path))
     .await
     .map_err(Error::Task)?
 }
 
 #[tauri::command]
-async fn save_notebook(path: PathBuf, notebook: NotebookDocument) -> Result {
-  tauri::async_runtime::spawn_blocking(move || document::save(&path, &notebook))
+async fn save_notebook(path: PathBuf, notebook: Notebook) -> Result {
+  tauri::async_runtime::spawn_blocking(move || notebook::save(&path, &notebook))
     .await
     .map_err(Error::Task)?
 }

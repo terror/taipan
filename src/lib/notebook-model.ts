@@ -1,13 +1,13 @@
-import type { NotebookCell, NotebookDocument } from "./types";
+import type { Cell, Notebook } from "./types";
 
 export interface NotebookSession {
   path: string;
-  notebook: NotebookDocument;
+  notebook: Notebook;
   revision: number;
   savedRevision: number;
 }
 
-export function sourceText(source: NotebookCell["source"]): string {
+export function sourceText(source: Cell["source"]): string {
   return Array.isArray(source) ? source.join("") : source;
 }
 
