@@ -1,15 +1,33 @@
+import {
+  imageDataUrl,
+  multilineText,
+  renderMarkdown,
+  sanitizeRichHtml,
+  sanitizeSvg,
+} from './rich-content';
 import type {
-  DisplayDataOutput,
   ErrorOutput,
-  ExecuteResultOutput,
+  MimeBundle,
   NotebookOutput,
   StreamOutput,
 } from './types';
 
 export const OUTPUT_TEXT_LIMIT = 10_000;
 
+export const MIME_PREFERENCE = [
+  'text/html',
+  'image/svg+xml',
+  'image/png',
+  'image/jpeg',
+  'text/markdown',
+  'application/json',
+  'text/plain',
+] as const;
+
+export type RichMimeType = (typeof MIME_PREFERENCE)[number];
+
 export type OutputRendererName =
-  'error' | 'stream' | 'text/plain' | 'unsupported';
+  'error' | 'stream' | RichMimeType | 'unsupported';
 
 export interface OutputRenderer {
   name: OutputRendererName;
@@ -36,8 +54,18 @@ export interface RenderedErrorOutput extends RenderedOutputBase {
 }
 
 export interface RenderedTextOutput extends RenderedOutputBase {
-  renderer: 'text/plain';
+  renderer: 'application/json' | 'text/plain';
   text: string;
+}
+
+export interface RenderedHtmlOutput extends RenderedOutputBase {
+  renderer: 'image/svg+xml' | 'text/html' | 'text/markdown';
+  html: string;
+}
+
+export interface RenderedImageOutput extends RenderedOutputBase {
+  renderer: 'image/jpeg' | 'image/png';
+  src: string;
 }
 
 export interface RenderedUnsupportedOutput extends RenderedOutputBase {
@@ -47,6 +75,8 @@ export interface RenderedUnsupportedOutput extends RenderedOutputBase {
 
 export type RenderedOutput =
   | RenderedErrorOutput
+  | RenderedHtmlOutput
+  | RenderedImageOutput
   | RenderedStreamOutput
   | RenderedTextOutput
   | RenderedUnsupportedOutput;
@@ -61,13 +91,15 @@ const errorRenderer: OutputRenderer = {
   accepts: (output) => output.output_type === 'error',
 };
 
-const textRenderer: OutputRenderer = {
-  name: 'text/plain',
-  accepts: (output) =>
-    (output.output_type === 'execute_result' ||
-      output.output_type === 'display_data') &&
-    isMultilineText(output.data['text/plain']),
-};
+const mimeRenderers: OutputRenderer[] = MIME_PREFERENCE.map((mimeType) => ({
+  name: mimeType,
+  accepts: (output) => {
+    const data = outputData(output);
+    return (
+      data !== undefined && renderMime(mimeType, data[mimeType]) !== undefined
+    );
+  },
+}));
 
 const unsupportedRenderer: OutputRenderer = {
   name: 'unsupported',
@@ -77,7 +109,7 @@ const unsupportedRenderer: OutputRenderer = {
 export const outputRendererRegistry: readonly OutputRenderer[] = [
   streamRenderer,
   errorRenderer,
-  textRenderer,
+  ...mimeRenderers,
   unsupportedRenderer,
 ];
 
@@ -98,18 +130,76 @@ export function renderOutput(
 ): RenderedOutput {
   const renderer = selectOutputRenderer(output);
 
-  switch (renderer.name) {
-    case 'stream':
-      return renderStream(output as StreamOutput, limit);
-    case 'error':
-      return renderError(output as ErrorOutput, limit);
+  if (renderer.name === 'stream') {
+    return renderStream(output as StreamOutput, limit);
+  }
+
+  if (renderer.name === 'error') {
+    return renderError(output as ErrorOutput, limit);
+  }
+
+  if (renderer.name === 'unsupported') {
+    return renderUnsupported(output, limit);
+  }
+
+  const data = outputData(output)!;
+  const rendered = renderMime(renderer.name, data[renderer.name])!;
+  const common = {
+    outputType: output.output_type,
+    truncated: false,
+    omittedCharacters: 0,
+  };
+
+  if (renderer.name === 'image/png' || renderer.name === 'image/jpeg') {
+    return { renderer: renderer.name, src: rendered, ...common };
+  }
+
+  if (
+    renderer.name === 'text/html' ||
+    renderer.name === 'text/markdown' ||
+    renderer.name === 'image/svg+xml'
+  ) {
+    return { renderer: renderer.name, html: rendered, ...common };
+  }
+
+  return {
+    renderer: renderer.name,
+    outputType: output.output_type,
+    ...boundText(rendered, limit),
+  };
+}
+
+function renderMime(
+  mimeType: RichMimeType,
+  value: unknown
+): string | undefined {
+  if (mimeType === 'image/png' || mimeType === 'image/jpeg') {
+    return imageDataUrl(mimeType, value);
+  }
+
+  if (mimeType === 'application/json') {
+    try {
+      return value === undefined ? undefined : JSON.stringify(value, null, 2);
+    } catch {
+      return undefined;
+    }
+  }
+
+  const text = multilineText(value);
+
+  if (text === undefined) {
+    return undefined;
+  }
+
+  switch (mimeType) {
+    case 'text/html':
+      return sanitizeRichHtml(text);
+    case 'image/svg+xml':
+      return sanitizeSvg(text);
+    case 'text/markdown':
+      return renderMarkdown(text);
     case 'text/plain':
-      return renderText(
-        output as DisplayDataOutput | ExecuteResultOutput,
-        limit
-      );
-    case 'unsupported':
-      return renderUnsupported(output, limit);
+      return text;
   }
 }
 
@@ -117,7 +207,7 @@ function renderStream(
   output: StreamOutput,
   limit: number
 ): RenderedStreamOutput {
-  const bounded = boundText(multilineText(output.text), limit);
+  const bounded = boundText(multilineText(output.text)!, limit);
 
   return {
     renderer: 'stream',
@@ -144,30 +234,12 @@ function renderError(output: ErrorOutput, limit: number): RenderedErrorOutput {
   };
 }
 
-function renderText(
-  output: DisplayDataOutput | ExecuteResultOutput,
-  limit: number
-): RenderedTextOutput {
-  const value = output.data['text/plain'];
-  const bounded = boundText(multilineText(value), limit);
-
-  return {
-    renderer: 'text/plain',
-    outputType: output.output_type,
-    ...bounded,
-  };
-}
-
 function renderUnsupported(
   output: NotebookOutput,
   limit: number
 ): RenderedUnsupportedOutput {
-  const mimeTypes =
-    output.output_type === 'display_data' ||
-    output.output_type === 'execute_result'
-      ? Object.keys(output.data)
-      : [];
-  const bounded = boundText(mimeTypes.join(', '), limit);
+  const data = outputData(output);
+  const bounded = boundText(data ? Object.keys(data).join(', ') : '', limit);
 
   return {
     renderer: 'unsupported',
@@ -178,19 +250,11 @@ function renderUnsupported(
   };
 }
 
-function isMultilineText(value: unknown): value is string | string[] {
-  return (
-    typeof value === 'string' ||
-    (Array.isArray(value) && value.every((line) => typeof line === 'string'))
-  );
-}
-
-function multilineText(value: unknown): string {
-  if (!isMultilineText(value)) {
-    throw new TypeError('Expected a Jupyter multiline string');
-  }
-
-  return Array.isArray(value) ? value.join('') : value;
+function outputData(output: NotebookOutput): MimeBundle | undefined {
+  return output.output_type === 'display_data' ||
+    output.output_type === 'execute_result'
+    ? output.data
+    : undefined;
 }
 
 function boundText(

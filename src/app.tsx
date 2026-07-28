@@ -1,3 +1,4 @@
+import { MarkdownCellView } from '@/components/markdown-cell';
 import { SavedOutputs } from '@/components/saved-outputs';
 import { Button } from '@/components/ui/button';
 import {
@@ -5,6 +6,7 @@ import {
   applyTransaction,
   createNotebookSession,
   isCodeCell,
+  isMarkdownCell,
   markNotebookSaved,
   openNotebook,
   saveNotebook,
@@ -193,27 +195,50 @@ export function App() {
                           {String(index + 1).padStart(2, '0')}
                         </span>
                       </div>
-                      <textarea
-                        className={`block min-h-28 w-full resize-y border-t border-zinc-200 bg-transparent px-3 py-3 text-[13px] leading-6 outline-none select-text sm:px-4 dark:border-zinc-800 ${
-                          cell.cell_type === 'code' ? 'font-mono' : 'font-sans'
-                        }`}
-                        aria-label={`${cell.cell_type} cell ${index + 1}`}
-                        value={sourceText(cell.source)}
-                        onChange={(event) =>
-                          setSession((current) =>
-                            current
-                              ? applyTransaction(current, [
-                                  {
-                                    type: 'replace-source',
-                                    cell: identity,
-                                    source: event.target.value,
-                                  },
-                                ])
-                              : current
-                          )
-                        }
-                        spellCheck={cell.cell_type === 'markdown'}
-                      />
+                      {isMarkdownCell(cell) ? (
+                        <MarkdownCellView
+                          cell={cell}
+                          index={index}
+                          source={sourceText(cell.source)}
+                          onChange={(source) =>
+                            setSession((current) =>
+                              current
+                                ? applyTransaction(current, [
+                                    {
+                                      type: 'replace-source',
+                                      cell: identity,
+                                      source,
+                                    },
+                                  ])
+                                : current
+                            )
+                          }
+                        />
+                      ) : (
+                        <textarea
+                          className={`block min-h-28 w-full resize-y border-t border-zinc-200 bg-transparent px-3 py-3 text-[13px] leading-6 outline-none select-text sm:px-4 dark:border-zinc-800 ${
+                            cell.cell_type === 'code'
+                              ? 'font-mono'
+                              : 'font-sans'
+                          }`}
+                          aria-label={`${cell.cell_type} cell ${index + 1}`}
+                          value={sourceText(cell.source)}
+                          onChange={(event) =>
+                            setSession((current) =>
+                              current
+                                ? applyTransaction(current, [
+                                    {
+                                      type: 'replace-source',
+                                      cell: identity,
+                                      source: event.target.value,
+                                    },
+                                  ])
+                                : current
+                            )
+                          }
+                          spellCheck={false}
+                        />
+                      )}
                       {isCodeCell(cell) && cell.outputs.length > 0 && (
                         <SavedOutputs outputs={cell.outputs} />
                       )}

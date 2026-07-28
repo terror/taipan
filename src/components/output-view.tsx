@@ -1,4 +1,5 @@
 import { OutputText } from '@/components/output-text';
+import { RichContent } from '@/components/rich-content';
 import type { RenderedOutput } from '@/lib/output';
 
 interface OutputViewProps {
@@ -39,6 +40,22 @@ export function OutputView({ output }: OutputViewProps) {
         </div>
       )}
       {output.renderer === 'text/plain' && <OutputText text={output.text} />}
+      {output.renderer === 'application/json' && (
+        <OutputText text={output.text} />
+      )}
+      {(output.renderer === 'text/html' ||
+        output.renderer === 'text/markdown' ||
+        output.renderer === 'image/svg+xml') && (
+        <RichContent html={output.html} />
+      )}
+      {(output.renderer === 'image/png' ||
+        output.renderer === 'image/jpeg') && (
+        <img
+          className='max-h-[70vh] max-w-full object-contain select-text'
+          src={output.src}
+          alt={`${output.renderer} output`}
+        />
+      )}
       {output.renderer === 'unsupported' && (
         <div className='rounded-md border border-dashed border-zinc-300 px-3 py-2 text-[11px] leading-5 text-zinc-500 dark:border-zinc-700 dark:text-zinc-400'>
           Unsupported output
