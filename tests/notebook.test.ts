@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sourceText, updateCellSource } from "../src/lib/notebook-model";
+import { sourceText, updateCellSource } from "../src/lib/notebook";
 import type { Cell, Notebook } from "../src/lib/types";
 
 type NotebookFixture = Notebook & {

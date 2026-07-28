@@ -2,12 +2,13 @@ import { useState } from "react";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
 import { AlertCircle, Check, FileCode2, FolderOpen, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { openNotebook, saveNotebook } from "@/lib/notebook-client";
 import {
+  openNotebook,
+  saveNotebook,
   sourceText,
   updateCellSource,
   type NotebookSession,
-} from "@/lib/notebook-model";
+} from "@/lib/notebook";
 
 function fileName(path: string): string {
   return path.split(/[\\/]/).at(-1) ?? path;
