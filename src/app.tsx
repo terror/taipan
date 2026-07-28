@@ -1,3 +1,4 @@
+import { SavedOutputs } from '@/components/saved-outputs';
 import { Button } from '@/components/ui/button';
 import {
   type NotebookSession,
@@ -179,10 +180,6 @@ export function App() {
 
               <div className='space-y-4'>
                 {sessionCells(session).map(({ identity, cell }, index) => {
-                  const outputCount = isCodeCell(cell)
-                    ? cell.outputs.length
-                    : 0;
-
                   return (
                     <article
                       className='group overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.025)] transition-[border-color,box-shadow] duration-150 focus-within:border-zinc-400 focus-within:shadow-[0_0_0_3px_rgba(0,0,0,0.04)] dark:border-zinc-800 dark:bg-zinc-900 dark:focus-within:border-zinc-600 dark:focus-within:shadow-[0_0_0_3px_rgba(255,255,255,0.04)]'
@@ -217,12 +214,8 @@ export function App() {
                         }
                         spellCheck={cell.cell_type === 'markdown'}
                       />
-                      {outputCount > 0 && (
-                        <div className='flex items-center gap-2 border-t border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] text-zinc-500 sm:px-4 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-zinc-400'>
-                          <span className='size-1.5 rounded-full bg-zinc-400 dark:bg-zinc-600' />
-                          {outputCount} saved{' '}
-                          {outputCount === 1 ? 'output' : 'outputs'}
-                        </div>
+                      {isCodeCell(cell) && cell.outputs.length > 0 && (
+                        <SavedOutputs outputs={cell.outputs} />
                       )}
                     </article>
                   );
