@@ -1,6 +1,8 @@
+import { CellEditor } from '@/components/cell-editor';
 import { MarkdownCellView } from '@/components/markdown-cell';
 import { SavedOutputs } from '@/components/saved-outputs';
 import { Button } from '@/components/ui/button';
+import { cellEditorLanguage } from '@/lib/editor';
 import {
   type NotebookSession,
   applyTransaction,
@@ -215,28 +217,26 @@ export function App() {
                           }
                         />
                       ) : (
-                        <textarea
-                          className={`block min-h-28 w-full resize-y border-t border-zinc-200 bg-transparent px-3 py-3 text-[13px] leading-6 outline-none select-text sm:px-4 dark:border-zinc-800 ${
-                            cell.cell_type === 'code'
-                              ? 'font-mono'
-                              : 'font-sans'
-                          }`}
-                          aria-label={`${cell.cell_type} cell ${index + 1}`}
-                          value={sourceText(cell.source)}
-                          onChange={(event) =>
+                        <CellEditor
+                          ariaLabel={`${cell.cell_type} cell ${index + 1}`}
+                          language={cellEditorLanguage(
+                            cell.cell_type,
+                            session.notebook.metadata
+                          )}
+                          source={sourceText(cell.source)}
+                          onChange={(source) =>
                             setSession((current) =>
                               current
                                 ? applyTransaction(current, [
                                     {
                                       type: 'replace-source',
                                       cell: identity,
-                                      source: event.target.value,
+                                      source,
                                     },
                                   ])
                                 : current
                             )
                           }
-                          spellCheck={false}
                         />
                       )}
                       {isCodeCell(cell) && cell.outputs.length > 0 && (
