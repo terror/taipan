@@ -16,18 +16,17 @@ use {
 mod document;
 mod error;
 
+type Result<T = (), E = Error> = std::result::Result<T, E>;
+
 #[tauri::command]
-async fn open_notebook(path: PathBuf) -> Result<NotebookDocument, Error> {
+async fn open_notebook(path: PathBuf) -> Result<NotebookDocument> {
   tauri::async_runtime::spawn_blocking(move || document::open(&path))
     .await
     .map_err(Error::Task)?
 }
 
 #[tauri::command]
-async fn save_notebook(
-  path: PathBuf,
-  notebook: NotebookDocument,
-) -> Result<(), Error> {
+async fn save_notebook(path: PathBuf, notebook: NotebookDocument) -> Result {
   tauri::async_runtime::spawn_blocking(move || document::save(&path, &notebook))
     .await
     .map_err(Error::Task)?

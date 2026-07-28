@@ -35,7 +35,7 @@ pub struct NotebookDocument {
   pub extra: Map<String, Value>,
 }
 
-pub fn open(path: &Path) -> Result<NotebookDocument, Error> {
+pub fn open(path: &Path) -> Result<NotebookDocument> {
   let file = File::open(path).map_err(|source| Error::Open {
     path: path.into(),
     source,
@@ -58,7 +58,7 @@ pub fn open(path: &Path) -> Result<NotebookDocument, Error> {
   Ok(notebook)
 }
 
-pub fn save(path: &Path, notebook: &NotebookDocument) -> Result<(), Error> {
+pub fn save(path: &Path, notebook: &NotebookDocument) -> Result {
   if notebook.nbformat != 4 {
     return Err(Error::UnsupportedSaveFormat {
       format: notebook.nbformat,
