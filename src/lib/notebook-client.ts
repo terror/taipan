@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { NotebookDocument } from "@/lib/notebook-model";
+import type { NotebookDocument } from "@/lib/types";
 
 export function openNotebook(path: string): Promise<NotebookDocument> {
   return invoke<NotebookDocument>("open_notebook", { path });

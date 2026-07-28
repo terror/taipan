@@ -1,26 +1,4 @@
-export type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
-
-export interface JsonObject {
-  [key: string]: JsonValue;
-}
-
-export type NotebookSource = string | string[];
-
-export interface NotebookCell {
-  cell_type: string;
-  source: NotebookSource;
-  metadata: JsonObject;
-  id?: string;
-  [key: string]: JsonValue | undefined;
-}
-
-export interface NotebookDocument {
-  cells: NotebookCell[];
-  metadata: JsonObject;
-  nbformat: number;
-  nbformat_minor: number;
-  [key: string]: JsonValue | NotebookCell[];
-}
+import type { NotebookCell, NotebookDocument } from "./types";
 
 export interface NotebookSession {
   path: string;
@@ -33,7 +11,7 @@ export function createNotebookSession(path: string, notebook: NotebookDocument):
   return { path, notebook, revision: 0, savedRevision: 0 };
 }
 
-export function sourceText(source: NotebookSource): string {
+export function sourceText(source: NotebookCell["source"]): string {
   return Array.isArray(source) ? source.join("") : source;
 }
 
@@ -68,5 +46,7 @@ export function isDirty(session: NotebookSession): boolean {
 }
 
 export function outputCount(cell: NotebookCell): number {
-  return Array.isArray(cell.outputs) ? cell.outputs.length : 0;
+  const outputs = Reflect.get(cell, "outputs");
+
+  return Array.isArray(outputs) ? outputs.length : 0;
 }

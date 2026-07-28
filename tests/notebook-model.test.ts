@@ -5,8 +5,8 @@ import {
   markSaved,
   sourceText,
   updateCellSource,
-  type NotebookDocument,
 } from "../src/lib/notebook-model";
+import type { NotebookDocument } from "../src/lib/types";
 
 function notebook(): NotebookDocument {
   return {

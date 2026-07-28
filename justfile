@@ -25,3 +25,7 @@ fmt:
 test:
   bun test
   cargo test --manifest-path src-tauri/Cargo.toml
+
+[group: 'dev']
+typeshare:
+  typeshare --lang typescript --output-file src/lib/types.ts src-tauri

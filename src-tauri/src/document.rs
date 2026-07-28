@@ -6,6 +6,7 @@ use std::{
   path::Path,
 };
 use tempfile::Builder;
+use typeshare::{U53, typeshare};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(untagged)]
@@ -14,23 +15,30 @@ pub enum Source {
   Lines(Vec<String>),
 }
 
+#[typeshare]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct Cell {
+pub struct NotebookCell {
   pub cell_type: String,
+  #[typeshare(typescript(type = "string | string[]"))]
   pub source: Source,
+  #[typeshare(typescript(type = "Record<string, unknown>"))]
   pub metadata: Map<String, Value>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub id: Option<String>,
+  #[typeshare(skip)]
   #[serde(flatten)]
   pub extra: Map<String, Value>,
 }
 
+#[typeshare]
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct NotebookDocument {
-  pub cells: Vec<Cell>,
+  pub cells: Vec<NotebookCell>,
+  #[typeshare(typescript(type = "Record<string, unknown>"))]
   pub metadata: Map<String, Value>,
-  pub nbformat: u64,
-  pub nbformat_minor: u64,
+  pub nbformat: U53,
+  pub nbformat_minor: U53,
+  #[typeshare(skip)]
   #[serde(flatten)]
   pub extra: Map<String, Value>,
 }
@@ -38,6 +46,7 @@ pub struct NotebookDocument {
 pub fn open(path: &Path) -> Result<NotebookDocument, String> {
   let file = File::open(path)
     .map_err(|error| format!("failed to open {}: {error}", path.display()))?;
+
   let notebook =
     serde_json::from_reader::<_, NotebookDocument>(BufReader::new(file))
       .map_err(|error| {
@@ -92,9 +101,11 @@ pub fn save(path: &Path, notebook: &NotebookDocument) -> Result<(), String> {
 
   {
     let mut writer = BufWriter::new(temporary.as_file_mut());
+
     serde_json::to_writer_pretty(&mut writer, notebook).map_err(|error| {
       format!("failed to serialize {}: {error}", path.display())
     })?;
+
     writer
       .write_all(b"\n")
       .and_then(|()| writer.flush())
@@ -131,23 +142,24 @@ mod tests {
   #[test]
   fn round_trip_preserves_notebook() {
     let notebook = serde_json::from_str::<NotebookDocument>(FIXTURE).unwrap();
-    let actual = serde_json::to_value(notebook).unwrap();
-    let expected = serde_json::from_str::<Value>(FIXTURE).unwrap();
 
-    assert_eq!(actual, expected);
+    assert_eq!(serde_json::to_value(notebook).unwrap(), serde_json::from_str::<Value>(FIXTURE).unwrap());
   }
 
   #[test]
   fn save_replaces_only_edited_source() {
     let directory = tempfile::tempdir().unwrap();
+
     let path = directory.path().join("foo.ipynb");
     fs::write(&path, FIXTURE).unwrap();
 
     let mut notebook = open(&path).unwrap();
     notebook.cells[0].source = Source::Text("bar".into());
+
     save(&path, &notebook).unwrap();
 
     let actual = serde_json::to_value(open(&path).unwrap()).unwrap();
+
     let mut expected = serde_json::from_str::<Value>(FIXTURE).unwrap();
     expected["cells"][0]["source"] = Value::String("bar".into());
 
@@ -157,7 +169,9 @@ mod tests {
   #[test]
   fn rejects_unsupported_format() {
     let directory = tempfile::tempdir().unwrap();
+
     let path = directory.path().join("foo.ipynb");
+
     fs::write(&path, FIXTURE.replace("\"nbformat\": 4", "\"nbformat\": 3"))
       .unwrap();
 
