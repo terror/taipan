@@ -4,6 +4,7 @@ import type {
   Attachments,
   CodeCell,
   ExecutionCount,
+  MarkdownCell,
   Notebook,
   NotebookCell,
   NotebookOutput,
@@ -244,6 +245,10 @@ export function markNotebookSaved(
 
 export function isCodeCell(cell: NotebookCell): cell is CodeCell {
   return cell.cell_type === 'code';
+}
+
+export function isMarkdownCell(cell: NotebookCell): cell is MarkdownCell {
+  return cell.cell_type === 'markdown';
 }
 
 export function isValidCellId(id: string): boolean {
