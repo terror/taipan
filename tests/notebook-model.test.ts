@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  createNotebookSession,
   isDirty,
   markSaved,
   sourceText,
@@ -36,7 +35,7 @@ describe("notebook model", () => {
 
   test("updates only cell source and tracks revisions", () => {
     const document = notebook();
-    const session = createNotebookSession("foo.ipynb", document);
+    const session = { path: "foo.ipynb", notebook: document, revision: 0, savedRevision: 0 };
     const edited = updateCellSource(session, 0, "bar");
 
     expect(edited.notebook.cells[0]).toEqual({ ...document.cells[0], source: "bar" });
@@ -48,7 +47,7 @@ describe("notebook model", () => {
   });
 
   test("ignores an unchanged source update", () => {
-    const session = createNotebookSession("foo.ipynb", notebook());
+    const session = { path: "foo.ipynb", notebook: notebook(), revision: 0, savedRevision: 0 };
 
     expect(updateCellSource(session, 0, "foo\nbar")).toBe(session);
   });

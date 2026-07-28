@@ -7,10 +7,6 @@ export interface NotebookSession {
   savedRevision: number;
 }
 
-export function createNotebookSession(path: string, notebook: NotebookDocument): NotebookSession {
-  return { path, notebook, revision: 0, savedRevision: 0 };
-}
-
 export function sourceText(source: NotebookCell["source"]): string {
   return Array.isArray(source) ? source.join("") : source;
 }

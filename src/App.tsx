@@ -4,7 +4,6 @@ import { AlertCircle, Check, FileCode2, FolderOpen, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { openNotebook, saveNotebook } from "@/lib/notebook-client";
 import {
-  createNotebookSession,
   isDirty,
   markSaved,
   outputCount,
@@ -55,7 +54,7 @@ export function App() {
 
     try {
       const notebook = await openNotebook(path);
-      setSession(createNotebookSession(path, notebook));
+      setSession({ path, notebook, revision: 0, savedRevision: 0 });
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
