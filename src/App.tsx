@@ -4,9 +4,6 @@ import { AlertCircle, Check, FileCode2, FolderOpen, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { openNotebook, saveNotebook } from "@/lib/notebook-client";
 import {
-  isDirty,
-  markSaved,
-  outputCount,
   sourceText,
   updateCellSource,
   type NotebookSession,
@@ -27,7 +24,7 @@ export function App() {
   const [isSaving, setIsSaving] = useState(false);
 
   async function chooseNotebook() {
-    if (session && isDirty(session)) {
+    if (session && session.revision !== session.savedRevision) {
       const discard = await confirm("Discard the unsaved changes in this notebook?", {
         title: "Open another notebook",
         kind: "warning",
@@ -63,7 +60,7 @@ export function App() {
   }
 
   async function saveCurrentNotebook() {
-    if (!session || isSaving || !isDirty(session)) {
+    if (!session || isSaving || session.revision === session.savedRevision) {
       return;
     }
 
@@ -74,7 +71,9 @@ export function App() {
     try {
       await saveNotebook(session.path, session.notebook);
       setSession((current) =>
-        current?.path === session.path ? markSaved(current, revision) : current,
+        current?.path === session.path
+          ? { ...current, savedRevision: Math.max(current.savedRevision, revision) }
+          : current,
       );
     } catch (cause) {
       setError(errorMessage(cause));
@@ -113,7 +112,7 @@ export function App() {
     );
   }
 
-  const dirty = isDirty(session);
+  const dirty = session.revision !== session.savedRevision;
 
   return (
     <main className="min-h-svh bg-background text-foreground">
@@ -164,7 +163,8 @@ export function App() {
 
         <div className="space-y-5">
           {session.notebook.cells.map((cell, index) => {
-            const outputs = outputCount(cell);
+            const outputs = Reflect.get(cell, "outputs");
+            const outputCount = Array.isArray(outputs) ? outputs.length : 0;
 
             return (
               <article className="group grid gap-2 sm:grid-cols-[4rem_minmax(0,1fr)]" key={cell.id ?? index}>
@@ -190,9 +190,9 @@ export function App() {
                     }
                     spellCheck={cell.cell_type === "markdown"}
                   />
-                  {outputs > 0 && (
+                  {outputCount > 0 && (
                     <div className="border-t bg-muted/45 px-4 py-2 font-mono text-[11px] text-muted-foreground">
-                      {outputs} saved {outputs === 1 ? "output" : "outputs"} preserved
+                      {outputCount} saved {outputCount === 1 ? "output" : "outputs"} preserved
                     </div>
                   )}
                 </div>

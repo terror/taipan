@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  isDirty,
-  markSaved,
-  sourceText,
-  updateCellSource,
-} from "../src/lib/notebook-model";
+import { sourceText, updateCellSource } from "../src/lib/notebook-model";
 import type { NotebookDocument } from "../src/lib/types";
 
 function notebook(): NotebookDocument {
@@ -42,8 +37,11 @@ describe("notebook model", () => {
     expect(edited.notebook.metadata).toBe(document.metadata);
     expect(edited.notebook.unknown).toBe("preserved");
     expect(edited.revision).toBe(1);
-    expect(isDirty(edited)).toBe(true);
-    expect(isDirty(markSaved(edited, edited.revision))).toBe(false);
+    expect(edited.revision !== edited.savedRevision).toBe(true);
+
+    const saved = { ...edited, savedRevision: Math.max(edited.savedRevision, edited.revision) };
+
+    expect(saved.revision !== saved.savedRevision).toBe(false);
   });
 
   test("ignores an unchanged source update", () => {
