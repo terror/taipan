@@ -1,3 +1,3 @@
 fn main() {
-    taipan_lib::run();
+  taipan_lib::run();
 }
