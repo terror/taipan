@@ -16,6 +16,7 @@ use {
 
 mod error;
 mod notebook;
+pub mod wire;
 
 type Result<T = (), E = Error> = std::result::Result<T, E>;
 

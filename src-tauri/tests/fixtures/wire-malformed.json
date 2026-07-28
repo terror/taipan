@@ -1,0 +1,5 @@
+{
+  "frames": ["666f6f", "626172"],
+  "key": "foo",
+  "scheme": "hmac-sha256"
+}
