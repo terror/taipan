@@ -1,0 +1,55 @@
+import { describe, expect, test } from "bun:test";
+import {
+  createNotebookSession,
+  isDirty,
+  markSaved,
+  sourceText,
+  updateCellSource,
+  type NotebookDocument,
+} from "../src/lib/notebook-model";
+
+function notebook(): NotebookDocument {
+  return {
+    cells: [
+      {
+        cell_type: "code",
+        execution_count: null,
+        metadata: { foo: "bar" },
+        outputs: [],
+        source: ["foo\n", "bar"],
+      },
+    ],
+    metadata: { custom: { foo: true } },
+    nbformat: 4,
+    nbformat_minor: 5,
+    unknown: "preserved",
+  };
+}
+
+describe("notebook model", () => {
+  test("joins multiline source without changing the document", () => {
+    const document = notebook();
+
+    expect(sourceText(document.cells[0].source)).toBe("foo\nbar");
+    expect(document.cells[0].source).toEqual(["foo\n", "bar"]);
+  });
+
+  test("updates only cell source and tracks revisions", () => {
+    const document = notebook();
+    const session = createNotebookSession("foo.ipynb", document);
+    const edited = updateCellSource(session, 0, "bar");
+
+    expect(edited.notebook.cells[0]).toEqual({ ...document.cells[0], source: "bar" });
+    expect(edited.notebook.metadata).toBe(document.metadata);
+    expect(edited.notebook.unknown).toBe("preserved");
+    expect(edited.revision).toBe(1);
+    expect(isDirty(edited)).toBe(true);
+    expect(isDirty(markSaved(edited, edited.revision))).toBe(false);
+  });
+
+  test("ignores an unchanged source update", () => {
+    const session = createNotebookSession("foo.ipynb", notebook());
+
+    expect(updateCellSource(session, 0, "foo\nbar")).toBe(session);
+  });
+});
