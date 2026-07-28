@@ -1,11 +1,14 @@
 import { Button } from '@/components/ui/button';
 import {
   type NotebookSession,
+  applyTransaction,
+  createNotebookSession,
   isCodeCell,
+  markNotebookSaved,
   openNotebook,
   saveNotebook,
+  sessionCells,
   sourceText,
-  updateCellSource,
 } from '@/lib/notebook';
 import { confirm, open } from '@tauri-apps/plugin-dialog';
 import { AlertCircle, FileCode2, FolderOpen, Save } from 'lucide-react';
@@ -56,7 +59,7 @@ export function App() {
 
     try {
       const notebook = await openNotebook(path);
-      setSession({ path, notebook, revision: 0, savedRevision: 0 });
+      setSession(createNotebookSession(path, notebook));
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -70,17 +73,15 @@ export function App() {
     }
 
     const revision = session.revision;
+    const documentId = session.documentId;
     setIsSaving(true);
     setError(null);
 
     try {
       await saveNotebook(session.path, session.notebook);
       setSession((current) =>
-        current?.path === session.path
-          ? {
-              ...current,
-              savedRevision: Math.max(current.savedRevision, revision),
-            }
+        current?.documentId === documentId
+          ? markNotebookSaved(current, revision)
           : current
       );
     } catch (cause) {
@@ -177,7 +178,7 @@ export function App() {
               </div>
 
               <div className='space-y-4'>
-                {session.notebook.cells.map((cell, index) => {
+                {sessionCells(session).map(({ identity, cell }, index) => {
                   const outputCount = isCodeCell(cell)
                     ? cell.outputs.length
                     : 0;
@@ -185,7 +186,7 @@ export function App() {
                   return (
                     <article
                       className='group overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.025)] transition-[border-color,box-shadow] duration-150 focus-within:border-zinc-400 focus-within:shadow-[0_0_0_3px_rgba(0,0,0,0.04)] dark:border-zinc-800 dark:bg-zinc-900 dark:focus-within:border-zinc-600 dark:focus-within:shadow-[0_0_0_3px_rgba(255,255,255,0.04)]'
-                      key={cell.id ?? index}
+                      key={identity}
                     >
                       <div className='flex items-center justify-between px-3 py-2 sm:px-4'>
                         <span className='text-[10px] font-semibold tracking-[0.12em] text-zinc-500 uppercase dark:text-zinc-400'>
@@ -204,11 +205,13 @@ export function App() {
                         onChange={(event) =>
                           setSession((current) =>
                             current
-                              ? updateCellSource(
-                                  current,
-                                  index,
-                                  event.target.value
-                                )
+                              ? applyTransaction(current, [
+                                  {
+                                    type: 'replace-source',
+                                    cell: identity,
+                                    source: event.target.value,
+                                  },
+                                ])
                               : current
                           )
                         }
