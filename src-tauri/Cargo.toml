@@ -1,8 +1,11 @@
 [package]
 name = "taipan"
 version = "0.1.0"
-description = "Taipan desktop application"
-authors = ["Taipan"]
+description = "A native jupyter notebook frontend"
+authors = ["Liam <liam@scalzulli.com>"]
+license = "CC0-1.0"
+homepage = "https://github.com/terror/taipan"
+repository = "https://github.com/terror/taipan"
 edition = "2024"
 
 [lib]

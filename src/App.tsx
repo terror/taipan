@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { confirm, open } from "@tauri-apps/plugin-dialog";
-import { AlertCircle, Check, FileCode2, FolderOpen, Save } from "lucide-react";
+import {
+  AlertCircle,
+  FileCode2,
+  FolderOpen,
+  Save,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   openNotebook,
@@ -83,132 +88,157 @@ export function App() {
     }
   }
 
-  if (!session) {
-    return (
-      <main className="grid min-h-svh place-items-center bg-background p-6 text-foreground">
-        <section className="w-full max-w-xl border-l-2 border-foreground pl-8">
-          <div className="mb-10 flex size-11 items-center justify-center rounded-md bg-foreground text-background">
-            <FileCode2 className="size-5" aria-hidden="true" />
-          </div>
-          <p className="mb-3 font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">
-            Native notebook workspace
-          </p>
-          <h1 className="text-5xl font-semibold tracking-[-0.055em]">Taipan</h1>
-          <p className="mt-5 max-w-md text-lg leading-8 text-muted-foreground">
-            Open a Jupyter notebook as a document. Unknown metadata and outputs stay exactly where
-            they belong.
-          </p>
-          <Button className="mt-9" type="button" onClick={() => void chooseNotebook()} disabled={isOpening}>
-            <FolderOpen className="size-4" aria-hidden="true" />
-            {isOpening ? "Opening..." : "Open notebook"}
-          </Button>
-          {error && (
-            <p className="mt-6 flex items-start gap-2 text-sm text-red-700 dark:text-red-400">
-              <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-              {error}
-            </p>
-          )}
-        </section>
-      </main>
-    );
-  }
-
-  const dirty = session.revision !== session.savedRevision;
+  const dirty = session ? session.revision !== session.savedRevision : false;
 
   return (
-    <main className="min-h-svh bg-background text-foreground">
-      <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-5xl items-center gap-3 px-4 sm:px-6">
-          <FileCode2 className="size-5 shrink-0" aria-hidden="true" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h1 className="truncate text-sm font-semibold">{fileName(session.path)}</h1>
-              {dirty ? (
-                <span className="size-2 shrink-0 rounded-full bg-amber-500" title="Unsaved changes" />
-              ) : (
-                <Check className="size-3.5 shrink-0 text-muted-foreground" aria-label="Saved" />
+    <main className="flex h-svh select-none flex-col overflow-hidden bg-zinc-50 font-sans text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
+      {session ? (
+        <div className="flex min-h-0 flex-1">
+          <aside className="hidden w-56 shrink-0 border-r border-zinc-200 bg-zinc-100 lg:flex lg:flex-col dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="border-b border-zinc-200 px-4 py-4 dark:border-zinc-800">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-zinc-500 dark:text-zinc-400">
+                Document
+              </p>
+              <p className="mt-2 truncate text-[13px] font-medium" title={session.path}>
+                {fileName(session.path)}
+              </p>
+              <p className="mt-0.5 truncate text-[11px] text-zinc-500 dark:text-zinc-400" title={session.path}>
+                {session.path}
+              </p>
+            </div>
+            <div className="px-2 py-3">
+              <div className="flex items-center justify-between rounded-md bg-zinc-200/70 px-2.5 py-2 text-xs dark:bg-zinc-800/80">
+                <span className="font-medium">Cells</span>
+                <span className="tabular-nums text-zinc-500 dark:text-zinc-400">
+                  {session.notebook.cells.length}
+                </span>
+              </div>
+            </div>
+            <div className="mt-auto border-t border-zinc-200 px-4 py-3 text-[11px] text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+              nbformat {session.notebook.nbformat}.{session.notebook.nbformat_minor}
+            </div>
+          </aside>
+
+          <section className="min-w-0 flex-1 overflow-y-auto bg-zinc-50 dark:bg-zinc-950">
+            <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-8 sm:py-12">
+              <div className="mb-8 flex items-end justify-between gap-4 sm:mb-10">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.13em] text-zinc-500 dark:text-zinc-400">
+                    Notebook
+                  </p>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <h1 className="truncate text-xl font-semibold tracking-[-0.025em] sm:text-2xl">
+                      {fileName(session.path).replace(/\.ipynb$/i, "")}
+                    </h1>
+                    {dirty && (
+                      <span
+                        className="size-1.5 shrink-0 rounded-full bg-zinc-600 dark:bg-zinc-400"
+                        title="Unsaved changes"
+                      />
+                    )}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <p className="mr-2 hidden text-xs tabular-nums text-zinc-500 sm:block dark:text-zinc-400">
+                    {session.notebook.cells.length} {session.notebook.cells.length === 1 ? "cell" : "cells"}
+                  </p>
+                  <Button variant="ghost" size="sm" type="button" onClick={() => void chooseNotebook()}>
+                    <FolderOpen className="size-3.5" aria-hidden="true" />
+                    <span className="hidden sm:inline">Open</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    type="button"
+                    onClick={() => void saveCurrentNotebook()}
+                    disabled={!dirty || isSaving}
+                  >
+                    <Save className="size-3.5" aria-hidden="true" />
+                    <span className="hidden sm:inline">{isSaving ? "Saving" : "Save"}</span>
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {session.notebook.cells.map((cell, index) => {
+                  const outputs = Reflect.get(cell, "outputs");
+                  const outputCount = Array.isArray(outputs) ? outputs.length : 0;
+
+                  return (
+                    <article
+                      className="group overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.025)] transition-[border-color,box-shadow] duration-150 focus-within:border-zinc-400 focus-within:shadow-[0_0_0_3px_rgba(0,0,0,0.04)] dark:border-zinc-800 dark:bg-zinc-900 dark:focus-within:border-zinc-600 dark:focus-within:shadow-[0_0_0_3px_rgba(255,255,255,0.04)]"
+                      key={cell.id ?? index}
+                    >
+                      <div className="flex items-center justify-between px-3 py-2 sm:px-4">
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500 dark:text-zinc-400">
+                          {cell.cell_type}
+                        </span>
+                        <span className="font-mono text-[10px] tabular-nums text-zinc-400 dark:text-zinc-500">
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                      </div>
+                      <textarea
+                        className={`block min-h-28 w-full resize-y select-text border-t border-zinc-200 bg-transparent px-3 py-3 text-[13px] leading-6 outline-none sm:px-4 dark:border-zinc-800 ${
+                          cell.cell_type === "code" ? "font-mono" : "font-sans"
+                        }`}
+                        aria-label={`${cell.cell_type} cell ${index + 1}`}
+                        value={sourceText(cell.source)}
+                        onChange={(event) =>
+                          setSession((current) =>
+                            current ? updateCellSource(current, index, event.target.value) : current,
+                          )
+                        }
+                        spellCheck={cell.cell_type === "markdown"}
+                      />
+                      {outputCount > 0 && (
+                        <div className="flex items-center gap-2 border-t border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] text-zinc-500 sm:px-4 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-zinc-400">
+                          <span className="size-1.5 rounded-full bg-zinc-400 dark:bg-zinc-600" />
+                          {outputCount} saved {outputCount === 1 ? "output" : "outputs"}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+
+              {error && (
+                <div
+                  className="mt-6 flex items-start gap-2 rounded-lg border border-zinc-300 bg-zinc-100 p-3 text-[12px] leading-5 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                  role="alert"
+                >
+                  <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                  {error}
+                </div>
               )}
             </div>
-            <p className="truncate font-mono text-[10px] text-muted-foreground" title={session.path}>
-              {session.path}
+          </section>
+        </div>
+      ) : (
+        <section className="grid min-h-0 flex-1 place-items-center bg-zinc-50 px-6 py-16 dark:bg-zinc-950">
+          <div className="w-full max-w-sm text-center">
+            <div className="mx-auto flex size-14 items-center justify-center rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+              <FileCode2 className="size-6 text-zinc-500 dark:text-zinc-400" strokeWidth={1.5} aria-hidden="true" />
+            </div>
+            <h2 className="mt-6 text-xl font-semibold tracking-[-0.025em]">Open a notebook</h2>
+            <p className="mx-auto mt-2 max-w-xs text-[13px] leading-5 text-zinc-500 dark:text-zinc-400">
+              Work with Jupyter notebooks as native documents. Your metadata and outputs remain intact.
             </p>
+            <Button className="mt-6" type="button" onClick={() => void chooseNotebook()} disabled={isOpening}>
+              <FolderOpen className="size-4" aria-hidden="true" />
+              {isOpening ? "Opening..." : "Choose notebook"}
+            </Button>
+            {error && (
+              <div
+                className="mt-6 flex items-start gap-2 rounded-lg border border-zinc-300 bg-zinc-100 p-3 text-left text-[12px] leading-5 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                role="alert"
+              >
+                <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+                {error}
+              </div>
+            )}
           </div>
-          <Button variant="ghost" size="sm" type="button" onClick={() => void chooseNotebook()}>
-            <FolderOpen className="size-4" aria-hidden="true" />
-            <span className="hidden sm:inline">Open</span>
-          </Button>
-          <Button
-            size="sm"
-            type="button"
-            onClick={() => void saveCurrentNotebook()}
-            disabled={!dirty || isSaving}
-          >
-            <Save className="size-4" aria-hidden="true" />
-            {isSaving ? "Saving..." : "Save"}
-          </Button>
-        </div>
-      </header>
-
-      <section className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-12">
-        <div className="mb-8 flex items-end justify-between border-b pb-3">
-          <div>
-            <p className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">Notebook</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {session.notebook.cells.length} {session.notebook.cells.length === 1 ? "cell" : "cells"}
-            </p>
-          </div>
-          <p className="font-mono text-xs text-muted-foreground">
-            nbformat {session.notebook.nbformat}.{session.notebook.nbformat_minor}
-          </p>
-        </div>
-
-        <div className="space-y-5">
-          {session.notebook.cells.map((cell, index) => {
-            const outputs = Reflect.get(cell, "outputs");
-            const outputCount = Array.isArray(outputs) ? outputs.length : 0;
-
-            return (
-              <article className="group grid gap-2 sm:grid-cols-[4rem_minmax(0,1fr)]" key={cell.id ?? index}>
-                <div className="flex items-center justify-between sm:block sm:pt-3 sm:text-right">
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
-                    {cell.cell_type}
-                  </span>
-                  <span className="ml-2 font-mono text-[10px] text-muted-foreground sm:ml-0 sm:block">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                </div>
-                <div className="overflow-hidden rounded-lg border bg-card shadow-[0_1px_0_rgba(0,0,0,0.03)] transition-colors focus-within:border-foreground/40">
-                  <textarea
-                    className={`block min-h-28 w-full resize-y bg-transparent px-4 py-3 text-sm leading-6 outline-none ${
-                      cell.cell_type === "code" ? "font-mono" : "font-sans"
-                    }`}
-                    aria-label={`${cell.cell_type} cell ${index + 1}`}
-                    value={sourceText(cell.source)}
-                    onChange={(event) =>
-                      setSession((current) =>
-                        current ? updateCellSource(current, index, event.target.value) : current,
-                      )
-                    }
-                    spellCheck={cell.cell_type === "markdown"}
-                  />
-                  {outputCount > 0 && (
-                    <div className="border-t bg-muted/45 px-4 py-2 font-mono text-[11px] text-muted-foreground">
-                      {outputCount} saved {outputCount === 1 ? "output" : "outputs"} preserved
-                    </div>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-
-        {error && (
-          <div className="mt-8 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
-            <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-            {error}
-          </div>
-        )}
-      </section>
+        </section>
+      )}
     </main>
   );
 }
