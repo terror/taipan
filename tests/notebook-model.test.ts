@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { sourceText, updateCellSource } from "../src/lib/notebook-model";
-import type { NotebookDocument } from "../src/lib/types";
+import type { NotebookCell, NotebookDocument } from "../src/lib/types";
 
-function notebook(): NotebookDocument {
+type NotebookFixture = NotebookDocument & {
+  cells: (NotebookCell & Record<string, unknown>)[];
+  unknown: string;
+};
+
+function notebook(): NotebookFixture {
   return {
     cells: [
       {
@@ -21,6 +26,12 @@ function notebook(): NotebookDocument {
 }
 
 describe("notebook model", () => {
+  test("ignores an unchanged source update", () => {
+    const session = { path: "foo.ipynb", notebook: notebook(), revision: 0, savedRevision: 0 };
+
+    expect(updateCellSource(session, 0, "foo\nbar")).toBe(session);
+  });
+
   test("joins multiline source without changing the document", () => {
     const document = notebook();
 
@@ -35,18 +46,12 @@ describe("notebook model", () => {
 
     expect(edited.notebook.cells[0]).toEqual({ ...document.cells[0], source: "bar" });
     expect(edited.notebook.metadata).toBe(document.metadata);
-    expect(edited.notebook.unknown).toBe("preserved");
+    expect(Reflect.get(edited.notebook, "unknown")).toBe("preserved");
     expect(edited.revision).toBe(1);
     expect(edited.revision !== edited.savedRevision).toBe(true);
 
     const saved = { ...edited, savedRevision: Math.max(edited.savedRevision, edited.revision) };
 
     expect(saved.revision !== saved.savedRevision).toBe(false);
-  });
-
-  test("ignores an unchanged source update", () => {
-    const session = { path: "foo.ipynb", notebook: notebook(), revision: 0, savedRevision: 0 };
-
-    expect(updateCellSource(session, 0, "foo\nbar")).toBe(session);
   });
 });
