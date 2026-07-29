@@ -29,14 +29,6 @@ export const MIME_PREFERENCE = [
 
 export type RichMimeType = (typeof MIME_PREFERENCE)[number];
 
-export type OutputRendererName =
-  'error' | 'stream' | RichMimeType | 'unsupported';
-
-export interface OutputRenderer {
-  name: OutputRendererName;
-  accepts: (output: NotebookOutput) => boolean;
-}
-
 interface RenderedOutputBase {
   outputType: NotebookOutput['output_type'];
   truncated: boolean;
@@ -84,42 +76,6 @@ export type RenderedOutput =
   | RenderedTextOutput
   | RenderedUnsupportedOutput;
 
-const streamRenderer: OutputRenderer = {
-  name: 'stream',
-  accepts: (output) => output.output_type === 'stream',
-};
-
-const errorRenderer: OutputRenderer = {
-  name: 'error',
-  accepts: (output) => output.output_type === 'error',
-};
-
-const mimeRenderers: OutputRenderer[] = MIME_PREFERENCE.map((mimeType) => ({
-  name: mimeType,
-  accepts: (output) => {
-    const data = outputData(output);
-    return (
-      data !== undefined && renderMime(mimeType, data[mimeType]) !== undefined
-    );
-  },
-}));
-
-const unsupportedRenderer: OutputRenderer = {
-  name: 'unsupported',
-  accepts: () => true,
-};
-
-export const outputRendererRegistry: readonly OutputRenderer[] = [
-  streamRenderer,
-  errorRenderer,
-  ...mimeRenderers,
-  unsupportedRenderer,
-];
-
-export function selectOutputRenderer(output: NotebookOutput): OutputRenderer {
-  return outputRendererRegistry.find((renderer) => renderer.accepts(output))!;
-}
-
 export function renderOutputs(
   outputs: readonly NotebookOutput[],
   limit = OUTPUT_TEXT_LIMIT
@@ -131,45 +87,49 @@ export function renderOutput(
   output: NotebookOutput,
   limit = OUTPUT_TEXT_LIMIT
 ): RenderedOutput {
-  const renderer = selectOutputRenderer(output);
-
-  if (renderer.name === 'stream') {
-    return renderStream(output as StreamOutput, limit);
+  if (output.output_type === 'stream') {
+    return renderStream(output, limit);
   }
 
-  if (renderer.name === 'error') {
-    return renderError(output as ErrorOutput, limit);
+  if (output.output_type === 'error') {
+    return renderError(output, limit);
   }
 
-  if (renderer.name === 'unsupported') {
-    return renderUnsupported(output, limit);
+  const data = outputData(output);
+
+  for (const mimeType of MIME_PREFERENCE) {
+    const rendered = renderMime(mimeType, data?.[mimeType]);
+
+    if (rendered === undefined) {
+      continue;
+    }
+
+    const common = {
+      outputType: output.output_type,
+      truncated: false,
+      omittedCharacters: 0,
+    };
+
+    if (mimeType === 'image/png' || mimeType === 'image/jpeg') {
+      return { renderer: mimeType, src: rendered, ...common };
+    }
+
+    if (
+      mimeType === 'text/html' ||
+      mimeType === 'text/markdown' ||
+      mimeType === 'image/svg+xml'
+    ) {
+      return { renderer: mimeType, html: rendered, ...common };
+    }
+
+    return {
+      renderer: mimeType,
+      outputType: output.output_type,
+      ...boundText(rendered, limit),
+    };
   }
 
-  const data = outputData(output)!;
-  const rendered = renderMime(renderer.name, data[renderer.name])!;
-  const common = {
-    outputType: output.output_type,
-    truncated: false,
-    omittedCharacters: 0,
-  };
-
-  if (renderer.name === 'image/png' || renderer.name === 'image/jpeg') {
-    return { renderer: renderer.name, src: rendered, ...common };
-  }
-
-  if (
-    renderer.name === 'text/html' ||
-    renderer.name === 'text/markdown' ||
-    renderer.name === 'image/svg+xml'
-  ) {
-    return { renderer: renderer.name, html: rendered, ...common };
-  }
-
-  return {
-    renderer: renderer.name,
-    outputType: output.output_type,
-    ...boundText(rendered, limit),
-  };
+  return renderUnsupported(output, limit);
 }
 
 function renderMime(

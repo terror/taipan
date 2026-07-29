@@ -3,10 +3,9 @@ import { JSDOM } from 'jsdom';
 
 import {
   MIME_PREFERENCE,
-  type OutputRendererName,
+  type RenderedOutput,
   renderOutput,
   renderOutputs,
-  selectOutputRenderer,
 } from '../src/lib/output';
 import type { NotebookOutput } from '../src/lib/types';
 
@@ -24,10 +23,13 @@ function display(data: Record<string, unknown>): NotebookOutput {
   return { data, metadata: {}, output_type: 'display_data' };
 }
 
-describe('output renderer registry', () => {
-  test('selects renderers by output content', () => {
-    function check(output: NotebookOutput, expected: OutputRendererName) {
-      expect(selectOutputRenderer(output).name).toBe(expected);
+describe('output rendering', () => {
+  test('selects rendering by output content', () => {
+    function check(
+      output: NotebookOutput,
+      expected: RenderedOutput['renderer']
+    ) {
+      expect(renderOutput(output).renderer).toBe(expected);
     }
 
     check(stream('stdout', 'foo'), 'stream');
@@ -189,7 +191,7 @@ describe('output renderer registry', () => {
       'application/json',
       'text/plain',
     ]);
-    expect(selectOutputRenderer(display(data)).name).toBe('text/html');
+    expect(renderOutput(display(data)).renderer).toBe('text/html');
   });
 
   test('renders each passive rich MIME type', () => {
