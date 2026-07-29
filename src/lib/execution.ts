@@ -35,17 +35,8 @@ export type ExecutionMessage =
       traceback: string[];
     }
   | {
-      type: 'execute_input';
-      code: string;
-      execution_count: number;
-    }
-  | {
       type: 'execute_reply';
-      ename: string | null;
-      evalue: string | null;
       execution_count: number;
-      status: string;
-      traceback: string[] | null;
     }
   | {
       type: 'execute_result';
@@ -142,9 +133,6 @@ export function applyExecutionEvent(
           },
         ],
       };
-      break;
-    case 'execute_input':
-      next = { ...execution, executionCount: message.execution_count };
       break;
     case 'execute_reply':
       next = {

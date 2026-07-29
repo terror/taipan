@@ -172,16 +172,8 @@ pub enum ExecutionMessage {
     evalue: String,
     traceback: Vec<String>,
   },
-  ExecuteInput {
-    code: String,
-    execution_count: U53,
-  },
   ExecuteReply {
-    ename: Option<String>,
-    evalue: Option<String>,
     execution_count: U53,
-    status: String,
-    traceback: Option<Vec<String>>,
   },
   ExecuteResult {
     data: JsonObject,
@@ -745,18 +737,8 @@ struct ErrorContent {
 }
 
 #[derive(Deserialize)]
-struct ExecuteInputContent {
-  code: String,
-  execution_count: U53,
-}
-
-#[derive(Deserialize)]
 struct ExecuteReplyContent {
-  ename: Option<String>,
-  evalue: Option<String>,
   execution_count: U53,
-  status: String,
-  traceback: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -800,21 +782,10 @@ fn normalize_execution_message(
         traceback: content.traceback,
       })
     }
-    "execute_input" => {
-      let content = content::<ExecuteInputContent>(envelope)?;
-      Some(ExecutionMessage::ExecuteInput {
-        code: content.code,
-        execution_count: content.execution_count,
-      })
-    }
     "execute_reply" => {
       let content = content::<ExecuteReplyContent>(envelope)?;
       Some(ExecutionMessage::ExecuteReply {
-        ename: content.ename,
-        evalue: content.evalue,
         execution_count: content.execution_count,
-        status: content.status,
-        traceback: content.traceback,
       })
     }
     "execute_result" => {
@@ -2196,7 +2167,6 @@ mod tests {
         ExecutionMessage::Status {
           execution_state: ExecutionState::Busy
         },
-        ExecutionMessage::ExecuteInput { .. },
         ExecutionMessage::Stream { .. },
         ExecutionMessage::DisplayData { .. },
         ExecutionMessage::ExecuteResult { .. },
@@ -2498,11 +2468,7 @@ mod tests {
     }
 
     let reply = || ExecutionMessage::ExecuteReply {
-      ename: None,
-      evalue: None,
       execution_count: U53::from(7_u8),
-      status: "ok".into(),
-      traceback: None,
     };
     let idle = || ExecutionMessage::Status {
       execution_state: ExecutionState::Idle,
@@ -2575,14 +2541,13 @@ mod tests {
         traceback: vec!["baz".into()],
       },
     );
-    case(
+    let execute_input = mock_envelope(
       "execute_input",
       &serde_json::json!({"code": "foo", "execution_count": 7}),
-      ExecutionMessage::ExecuteInput {
-        code: "foo".into(),
-        execution_count: U53::from(7_u8),
-      },
+      None,
+      Vec::new(),
     );
+    assert_eq!(normalize_execution_message(&execute_input), None);
     case(
       "status",
       &serde_json::json!({"execution_state": "busy"}),
@@ -2592,13 +2557,15 @@ mod tests {
     );
     case(
       "execute_reply",
-      &serde_json::json!({"execution_count": 7, "status": "ok"}),
+      &serde_json::json!({
+        "ename": "FooError",
+        "evalue": "bar",
+        "execution_count": 7,
+        "status": "error",
+        "traceback": ["baz"]
+      }),
       ExecutionMessage::ExecuteReply {
-        ename: None,
-        evalue: None,
         execution_count: U53::from(7_u8),
-        status: "ok".into(),
-        traceback: None,
       },
     );
   }
