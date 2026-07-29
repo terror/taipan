@@ -49,19 +49,23 @@ use {
 pub use {
   channel::{
     ChannelDriver, ChannelMessage, DriverConfig, HeartbeatDriver,
-    TransportError, TransportEvent,
+    TransportEvent,
   },
   kernel::{
     CellId, ConnectionData, DocumentId, ExecutionEvent, ExecutionId,
     ExecutionMessage, ExecutionRequest, ExecutionState, KernelChannels,
     KernelId, KernelInfo, KernelLaunchSpec, KernelState, LaunchConfig,
-    LaunchError, LocalKernel, LocalKernelManager, ManagerConfig, ManagerError,
+    LocalKernel, LocalKernelManager, ManagerConfig,
   },
+  launch_error::LaunchError,
+  manager_error::ManagerError,
   platform::Platform,
+  transport_error::TransportError,
   wire::{
     Channel, DELIMITER, Envelope, Frame, Header, JsonFrame, JsonObject,
-    MessageType, ParentHeader, WireError, WireProtocol,
+    MessageType, ParentHeader, WireProtocol,
   },
+  wire_error::WireError,
 };
 
 #[cfg(unix)]
@@ -94,10 +98,14 @@ mod error;
 mod kernel;
 mod kernel_source;
 mod kernelspec;
+mod launch_error;
+mod manager_error;
 mod notebook;
 mod platform;
 mod search_root;
+mod transport_error;
 mod wire;
+mod wire_error;
 
 type Result<T = (), E = Error> = std::result::Result<T, E>;
 

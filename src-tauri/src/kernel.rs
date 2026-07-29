@@ -98,28 +98,6 @@ impl Default for LaunchConfig {
   }
 }
 
-#[derive(Debug, Error)]
-pub enum LaunchError {
-  #[error("failed to allocate local kernel ports")]
-  AllocatePorts(#[source] io::Error),
-  #[error("failed to create private kernel connection file")]
-  ConnectionFile(#[source] io::Error),
-  #[error("failed to serialize kernel connection data")]
-  ConnectionJson(#[source] serde_json::Error),
-  #[error("invalid kernel command")]
-  InvalidCommand,
-  #[error("invalid environment template for `{0}`")]
-  InvalidEnvironmentTemplate(String),
-  #[error("failed to spawn kernel process")]
-  Spawn(#[source] io::Error),
-  #[error("kernel startup failed: {0}")]
-  Startup(String),
-  #[error("failed to stop kernel process")]
-  Stop(#[source] io::Error),
-  #[error("failed to connect kernel channel")]
-  Transport(#[source] TransportError),
-}
-
 #[derive(
   Clone,
   Copy,
@@ -245,22 +223,6 @@ impl Default for ManagerConfig {
       terminate_timeout: Duration::from_secs(2),
     }
   }
-}
-
-#[derive(Debug, Error)]
-pub enum ManagerError {
-  #[error("kernel {0} already has an active execution")]
-  Busy(KernelId),
-  #[error("kernel {0} command channel closed")]
-  CommandClosed(KernelId),
-  #[error("kernel {0} failed to start")]
-  Failed(KernelId),
-  #[error("kernel {0} does not exist")]
-  NotFound(KernelId),
-  #[error("kernel supervision failed")]
-  Supervision(#[source] LaunchError),
-  #[error("kernel supervisor task failed")]
-  Task(#[source] tokio::task::JoinError),
 }
 
 pub struct LocalKernelManager {
