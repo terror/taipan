@@ -28,6 +28,8 @@ describe('Tauri security configuration', () => {
     expect(capability.remote).toBeUndefined();
     expect(capability.windows).toEqual(['main']);
     expect(capability.permissions).toEqual([
+      'core:event:allow-listen',
+      'core:event:allow-unlisten',
       'dialog:allow-confirm',
       'dialog:allow-open',
     ]);

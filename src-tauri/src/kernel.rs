@@ -29,7 +29,7 @@ use {
   tokio::{
     io::{AsyncRead, AsyncReadExt},
     process::{Child, Command},
-    sync::{mpsc, watch},
+    sync::{mpsc, oneshot, watch},
     task::JoinHandle,
     time::{self, Instant},
   },
@@ -182,7 +182,16 @@ pub enum LaunchError {
 }
 
 #[derive(
-  Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
+  Clone,
+  Copy,
+  Debug,
+  Deserialize,
+  Eq,
+  Hash,
+  Ord,
+  PartialEq,
+  PartialOrd,
+  Serialize,
 )]
 #[serde(transparent)]
 pub struct KernelId(Uuid);
@@ -203,6 +212,79 @@ pub enum KernelState {
   Starting,
   Stopping,
   Unresponsive,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct DocumentId(Uuid);
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct CellId(Uuid);
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct ExecutionId(Uuid);
+
+#[derive(Clone, Debug)]
+pub struct ExecutionRequest {
+  pub cell_id: CellId,
+  pub code: String,
+  pub document_id: DocumentId,
+  pub execution_id: ExecutionId,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct ExecutionEvent {
+  pub cell_id: CellId,
+  pub document_id: DocumentId,
+  pub execution_id: ExecutionId,
+  pub kernel_id: KernelId,
+  pub message: ExecutionMessage,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+pub enum ExecutionMessage {
+  DisplayData {
+    data: JsonObject,
+    metadata: JsonObject,
+  },
+  Error {
+    ename: String,
+    evalue: String,
+    traceback: Vec<String>,
+  },
+  ExecuteInput {
+    code: String,
+    execution_count: typeshare::U53,
+  },
+  ExecuteReply {
+    ename: Option<String>,
+    evalue: Option<String>,
+    execution_count: typeshare::U53,
+    status: String,
+    traceback: Option<Vec<String>>,
+  },
+  ExecuteResult {
+    data: JsonObject,
+    execution_count: typeshare::U53,
+    metadata: JsonObject,
+  },
+  Status {
+    execution_state: ExecutionState,
+  },
+  Stream {
+    name: String,
+    text: String,
+  },
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionState {
+  Busy,
+  Idle,
 }
 
 #[derive(Clone, Debug)]
@@ -228,6 +310,10 @@ impl Default for ManagerConfig {
 
 #[derive(Debug, Error)]
 pub enum ManagerError {
+  #[error("kernel {0} already has an active execution")]
+  Busy(KernelId),
+  #[error("kernel {0} command channel closed")]
+  CommandClosed(KernelId),
   #[error("kernel {0} failed to start")]
   Failed(KernelId),
   #[error("kernel {0} does not exist")]
@@ -250,6 +336,27 @@ impl Default for LocalKernelManager {
 }
 
 impl LocalKernelManager {
+  #[allow(clippy::missing_errors_doc)]
+  pub async fn execute(
+    &self,
+    id: KernelId,
+    request: ExecutionRequest,
+  ) -> Result<(), ManagerError> {
+    let commands = self
+      .kernels
+      .get(&id)
+      .map(|kernel| kernel.commands.clone())
+      .ok_or(ManagerError::NotFound(id))?;
+    let (response, result) = oneshot::channel();
+
+    commands
+      .send(SupervisorCommand::Execute { request, response })
+      .await
+      .map_err(|_| ManagerError::CommandClosed(id))?;
+
+    result.await.map_err(|_| ManagerError::CommandClosed(id))?
+  }
+
   #[must_use]
   pub fn new(config: ManagerConfig) -> Self {
     Self {
@@ -289,12 +396,28 @@ impl LocalKernelManager {
 
   #[must_use]
   pub fn start(&mut self, spec: KernelLaunchSpec) -> KernelId {
+    let (events, _) = mpsc::unbounded_channel();
+    self.start_with_events(spec, events)
+  }
+
+  #[must_use]
+  pub fn start_with_events(
+    &mut self,
+    spec: KernelLaunchSpec,
+    events: mpsc::UnboundedSender<ExecutionEvent>,
+  ) -> KernelId {
     let id = KernelId(Uuid::new_v4());
     let (commands, command_receiver) = mpsc::channel(1);
     let (state, state_receiver) = watch::channel(KernelState::Starting);
     let config = self.config.clone();
-    let task =
-      tokio::spawn(run_supervisor(spec, config, state, command_receiver));
+    let task = tokio::spawn(run_supervisor(
+      id,
+      spec,
+      config,
+      state,
+      command_receiver,
+      events,
+    ));
 
     self.kernels.insert(
       id,
@@ -314,6 +437,18 @@ impl LocalKernelManager {
       .kernels
       .get(&id)
       .map(|kernel| *kernel.state.borrow())
+      .ok_or(ManagerError::NotFound(id))
+  }
+
+  #[allow(clippy::missing_errors_doc)]
+  pub fn subscribe_state(
+    &self,
+    id: KernelId,
+  ) -> Result<watch::Receiver<KernelState>, ManagerError> {
+    self
+      .kernels
+      .get(&id)
+      .map(|kernel| kernel.state.clone())
       .ok_or(ManagerError::NotFound(id))
   }
 
@@ -362,8 +497,11 @@ struct ManagedKernel {
   task: Option<JoinHandle<Result<(), LaunchError>>>,
 }
 
-#[derive(Clone, Copy)]
 enum SupervisorCommand {
+  Execute {
+    request: ExecutionRequest,
+    response: oneshot::Sender<Result<(), ManagerError>>,
+  },
   Shutdown,
 }
 
@@ -684,10 +822,12 @@ fn message(msg_type: &str, session: &str, content: JsonObject) -> Envelope {
 }
 
 async fn run_supervisor(
+  id: KernelId,
   spec: KernelLaunchSpec,
   config: ManagerConfig,
   state: watch::Sender<KernelState>,
   commands: mpsc::Receiver<SupervisorCommand>,
+  events: mpsc::UnboundedSender<ExecutionEvent>,
 ) -> Result<(), LaunchError> {
   let kernel =
     LocalKernel::launch_with_config(spec, config.launch.clone()).await;
@@ -699,7 +839,215 @@ async fn run_supervisor(
     }
   };
 
-  supervise_kernel(kernel, config, state, commands).await
+  supervise_kernel(id, kernel, config, state, commands, events).await
+}
+
+struct ActiveExecution {
+  idle: bool,
+  reply: bool,
+  request: ExecutionRequest,
+  request_message_id: String,
+  running: bool,
+}
+
+impl ActiveExecution {
+  fn complete(&self) -> bool {
+    self.running && self.reply && self.idle
+  }
+
+  fn observe(&mut self, message: &ExecutionMessage) {
+    match message {
+      ExecutionMessage::Status {
+        execution_state: ExecutionState::Busy,
+      } => self.running = true,
+      ExecutionMessage::Status {
+        execution_state: ExecutionState::Idle,
+      } if self.running => self.idle = true,
+      ExecutionMessage::ExecuteReply { .. } => self.reply = true,
+      _ => {}
+    }
+  }
+}
+
+#[derive(Deserialize)]
+struct DisplayContent {
+  data: JsonObject,
+  metadata: JsonObject,
+}
+
+#[derive(Deserialize)]
+struct ErrorContent {
+  ename: String,
+  evalue: String,
+  traceback: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ExecuteInputContent {
+  code: String,
+  execution_count: typeshare::U53,
+}
+
+#[derive(Deserialize)]
+struct ExecuteReplyContent {
+  ename: Option<String>,
+  evalue: Option<String>,
+  execution_count: typeshare::U53,
+  status: String,
+  traceback: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+struct ExecuteResultContent {
+  data: JsonObject,
+  execution_count: typeshare::U53,
+  metadata: JsonObject,
+}
+
+#[derive(Deserialize)]
+struct StatusContent {
+  execution_state: ExecutionState,
+}
+
+#[derive(Deserialize)]
+struct StreamContent {
+  name: String,
+  text: String,
+}
+
+fn content<T: for<'de> Deserialize<'de>>(envelope: &Envelope) -> Option<T> {
+  serde_json::from_value(Value::Object(envelope.content.clone())).ok()
+}
+
+fn normalize_execution_message(
+  envelope: &Envelope,
+) -> Option<ExecutionMessage> {
+  match envelope.header.msg_type.0.as_str() {
+    "display_data" => {
+      let content = content::<DisplayContent>(envelope)?;
+      Some(ExecutionMessage::DisplayData {
+        data: content.data,
+        metadata: content.metadata,
+      })
+    }
+    "error" => {
+      let content = content::<ErrorContent>(envelope)?;
+      Some(ExecutionMessage::Error {
+        ename: content.ename,
+        evalue: content.evalue,
+        traceback: content.traceback,
+      })
+    }
+    "execute_input" => {
+      let content = content::<ExecuteInputContent>(envelope)?;
+      Some(ExecutionMessage::ExecuteInput {
+        code: content.code,
+        execution_count: content.execution_count,
+      })
+    }
+    "execute_reply" => {
+      let content = content::<ExecuteReplyContent>(envelope)?;
+      Some(ExecutionMessage::ExecuteReply {
+        ename: content.ename,
+        evalue: content.evalue,
+        execution_count: content.execution_count,
+        status: content.status,
+        traceback: content.traceback,
+      })
+    }
+    "execute_result" => {
+      let content = content::<ExecuteResultContent>(envelope)?;
+      Some(ExecutionMessage::ExecuteResult {
+        data: content.data,
+        execution_count: content.execution_count,
+        metadata: content.metadata,
+      })
+    }
+    "status" => {
+      let content = content::<StatusContent>(envelope)?;
+      Some(ExecutionMessage::Status {
+        execution_state: content.execution_state,
+      })
+    }
+    "stream" => {
+      let content = content::<StreamContent>(envelope)?;
+      Some(ExecutionMessage::Stream {
+        name: content.name,
+        text: content.text,
+      })
+    }
+    _ => None,
+  }
+}
+
+fn correlated_request(envelope: &Envelope, request_message_id: &str) -> bool {
+  matches!(
+    &envelope.parent_header,
+    ParentHeader::Header(parent) if parent.msg_id == request_message_id
+  )
+}
+
+fn route_execution_message(
+  id: KernelId,
+  active: &mut Option<ActiveExecution>,
+  events: &mpsc::UnboundedSender<ExecutionEvent>,
+  envelope: &Envelope,
+) {
+  let Some(execution) = active.as_mut() else {
+    return;
+  };
+
+  if !correlated_request(envelope, &execution.request_message_id) {
+    return;
+  }
+
+  let Some(message) = normalize_execution_message(envelope) else {
+    return;
+  };
+
+  execution.observe(&message);
+
+  let _ = events.send(ExecutionEvent {
+    cell_id: execution.request.cell_id,
+    document_id: execution.request.document_id,
+    execution_id: execution.request.execution_id,
+    kernel_id: id,
+    message,
+  });
+
+  if execution.complete() {
+    *active = None;
+  }
+}
+
+fn send_execute(
+  kernel: &LocalKernel,
+  request: ExecutionRequest,
+) -> Result<ActiveExecution, TransportError> {
+  let mut content = JsonObject::new();
+  content.insert("allow_stdin".into(), Value::Bool(false));
+  content.insert("code".into(), Value::String(request.code.clone()));
+  content.insert("silent".into(), Value::Bool(false));
+  content.insert("stop_on_error".into(), Value::Bool(true));
+  content.insert("store_history".into(), Value::Bool(true));
+  content.insert("user_expressions".into(), Value::Object(JsonObject::new()));
+  let envelope = message("execute_request", &kernel.session, content);
+  let request_message_id = envelope.header.msg_id.clone();
+
+  kernel
+    .channels
+    .as_ref()
+    .ok_or(TransportError::QueueClosed)?
+    .shell
+    .try_send(&envelope)?;
+
+  Ok(ActiveExecution {
+    idle: false,
+    request,
+    request_message_id,
+    reply: false,
+    running: false,
+  })
 }
 
 fn send_shutdown(kernel: &LocalKernel) -> Result<String, TransportError> {
@@ -795,10 +1143,12 @@ async fn shutdown_kernel(
 }
 
 async fn supervise_kernel(
+  id: KernelId,
   mut kernel: LocalKernel,
   config: ManagerConfig,
   state: watch::Sender<KernelState>,
   mut commands: mpsc::Receiver<SupervisorCommand>,
+  events: mpsc::UnboundedSender<ExecutionEvent>,
 ) -> Result<(), LaunchError> {
   state.send_replace(KernelState::Idle);
 
@@ -809,6 +1159,7 @@ async fn supervise_kernel(
   let mut heartbeat_pending = None;
   let mut process = time::interval(config.process_poll_interval);
   process.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
+  let mut active_execution = None;
 
   loop {
     let event = {
@@ -825,6 +1176,18 @@ async fn supervise_kernel(
       tokio::select! {
         command = commands.recv() => {
           match command {
+            Some(SupervisorCommand::Execute { request, response }) => {
+              let result = if active_execution.is_some() {
+                Err(ManagerError::Busy(id))
+              } else {
+                send_execute(&kernel, request)
+                  .map(|execution| active_execution = Some(execution))
+                  .map_err(|_| ManagerError::CommandClosed(id))
+              };
+
+              let _ = response.send(result);
+              SupervisorEvent::Continue
+            }
             Some(SupervisorCommand::Shutdown) | None => SupervisorEvent::Shutdown,
           }
         }
@@ -863,27 +1226,32 @@ async fn supervise_kernel(
         }
         event = channels.iopub_events.recv() => {
           match event {
-            Some(TransportEvent::Message(message))
-              if message.envelope.header.msg_type == MessageType::from("status") =>
-            {
-              execution_state = match message
-                .envelope
-                .content
-                .get("execution_state")
-                .and_then(Value::as_str)
-              {
-                Some("busy") => KernelState::Busy,
-                Some("idle") => KernelState::Idle,
-                _ => execution_state,
-              };
+            Some(TransportEvent::Message(message)) => {
+              if message.envelope.header.msg_type == MessageType::from("status") {
+                execution_state = match message
+                  .envelope
+                  .content
+                  .get("execution_state")
+                  .and_then(Value::as_str)
+                {
+                  Some("busy") => KernelState::Busy,
+                  Some("idle") => KernelState::Idle,
+                  _ => execution_state,
+                };
 
-              if heartbeat_open {
-                state.send_replace(execution_state);
+                if heartbeat_open {
+                  state.send_replace(execution_state);
+                }
               }
 
+              route_execution_message(
+                id,
+                &mut active_execution,
+                &events,
+                &message.envelope,
+              );
               SupervisorEvent::Continue
             }
-            Some(TransportEvent::Message(_)) => SupervisorEvent::Continue,
             Some(TransportEvent::Error { .. } | TransportEvent::Heartbeat(_))
             | None => SupervisorEvent::Failed,
           }
@@ -894,7 +1262,15 @@ async fn supervise_kernel(
           | None => SupervisorEvent::Failed,
         },
         event = channels.shell_events.recv() => match event {
-          Some(TransportEvent::Message(_)) => SupervisorEvent::Continue,
+          Some(TransportEvent::Message(message)) => {
+            route_execution_message(
+              id,
+              &mut active_execution,
+              &events,
+              &message.envelope,
+            );
+            SupervisorEvent::Continue
+          }
           Some(TransportEvent::Error { .. } | TransportEvent::Heartbeat(_))
           | None => SupervisorEvent::Failed,
         },
@@ -1856,6 +2232,7 @@ mod tests {
 
   #[derive(Clone, Copy, Eq, PartialEq)]
   enum MockBehavior {
+    Execute,
     Exit,
     Forced,
     Graceful,
@@ -2059,6 +2436,75 @@ mod tests {
               time::sleep(Duration::from_millis(100)).await;
               return;
             }
+          } else if request.header.msg_type == MessageType::from("execute_request")
+            && behavior == MockBehavior::Execute
+          {
+            let code = request.content["code"].as_str().unwrap();
+            let parent = request.header.clone();
+            let iopub_message = |msg_type: &str, content: Value| {
+              mock_envelope(
+                msg_type,
+                &content,
+                Some(parent.clone()),
+                vec![msg_type.as_bytes().to_vec()],
+              )
+            };
+
+            for message in [
+              iopub_message(
+                "status",
+                serde_json::json!({"execution_state": "busy"}),
+              ),
+              iopub_message(
+                "execute_input",
+                serde_json::json!({"code": code, "execution_count": 7}),
+              ),
+              iopub_message(
+                "stream",
+                serde_json::json!({"name": "stdout", "text": "foo\n"}),
+              ),
+              iopub_message(
+                "display_data",
+                serde_json::json!({
+                  "data": {"text/html": "<b>foo</b>"},
+                  "metadata": {}
+                }),
+              ),
+              iopub_message(
+                "execute_result",
+                serde_json::json!({
+                  "data": {"text/plain": "42"},
+                  "execution_count": 7,
+                  "metadata": {}
+                }),
+              ),
+            ] {
+              iopub
+                .send(frames_to_message(protocol.encode(&message).unwrap()))
+                .await
+                .unwrap();
+            }
+
+            time::sleep(Duration::from_millis(50)).await;
+
+            let reply = mock_envelope(
+              "execute_reply",
+              &serde_json::json!({"execution_count": 7, "status": "ok"}),
+              Some(request.header.clone()),
+              request.identities.clone(),
+            );
+            shell
+              .send(frames_to_message(protocol.encode(&reply).unwrap()))
+              .await
+              .unwrap();
+            let idle = iopub_message(
+              "status",
+              serde_json::json!({"execution_state": "idle"}),
+            );
+            iopub
+              .send(frames_to_message(protocol.encode(&idle).unwrap()))
+              .await
+              .unwrap();
           }
         }
         request = stdin.recv() => {
@@ -2073,6 +2519,7 @@ mod tests {
     environment: impl IntoIterator<Item = (String, String)>,
   ) -> KernelLaunchSpec {
     let behavior = match behavior {
+      MockBehavior::Execute => "execute",
       MockBehavior::Exit => "exit",
       MockBehavior::Forced => "forced",
       MockBehavior::Graceful => "graceful",
@@ -2117,6 +2564,7 @@ mod tests {
       return;
     };
     let behavior = match behavior.as_str() {
+      "execute" => MockBehavior::Execute,
       "exit" => MockBehavior::Exit,
       "forced" => MockBehavior::Forced,
       "graceful" => MockBehavior::Graceful,
@@ -2142,6 +2590,67 @@ mod tests {
     manager.shutdown(id).await.unwrap();
 
     assert_eq!(fs::read_dir(runtime.path()).unwrap().count(), 0);
+  }
+
+  #[tokio::test]
+  async fn manager_routes_one_correlated_execution() {
+    let runtime = tempfile::tempdir().unwrap();
+    let mut manager = LocalKernelManager::new(manager_config(runtime.path()));
+    let (events, mut event_receiver) = mpsc::unbounded_channel();
+    let id =
+      manager.start_with_events(mock_spec(MockBehavior::Execute, []), events);
+
+    manager.wait_for_start(id).await.unwrap();
+    manager.execute(id, execution_request()).await.unwrap();
+
+    assert!(matches!(
+      manager.execute(id, execution_request()).await,
+      Err(ManagerError::Busy(error_id)) if error_id == id
+    ));
+
+    let received = time::timeout(Duration::from_secs(3), async {
+      let mut messages = Vec::new();
+
+      loop {
+        let event = event_receiver.recv().await.unwrap();
+        assert_eq!(event.kernel_id, id);
+        assert_eq!(event.cell_id, execution_request().cell_id);
+        assert_eq!(event.document_id, execution_request().document_id);
+        assert_eq!(event.execution_id, execution_request().execution_id);
+        let complete = matches!(
+          event.message,
+          ExecutionMessage::Status {
+            execution_state: ExecutionState::Idle
+          }
+        );
+        messages.push(event.message);
+
+        if complete {
+          return messages;
+        }
+      }
+    })
+    .await
+    .unwrap();
+
+    assert!(matches!(
+      received.as_slice(),
+      [
+        ExecutionMessage::Status {
+          execution_state: ExecutionState::Busy
+        },
+        ExecutionMessage::ExecuteInput { .. },
+        ExecutionMessage::Stream { .. },
+        ExecutionMessage::DisplayData { .. },
+        ExecutionMessage::ExecuteResult { .. },
+        ExecutionMessage::ExecuteReply { .. },
+        ExecutionMessage::Status {
+          execution_state: ExecutionState::Idle
+        },
+      ]
+    ));
+
+    manager.shutdown(id).await.unwrap();
   }
 
   #[tokio::test]
@@ -2411,6 +2920,148 @@ mod tests {
     assert_eq!(
       environment.keys().collect::<Vec<_>>(),
       [OsStr::new("PATH"), OsStr::new("SHELL")]
+    );
+  }
+
+  fn execution_request() -> ExecutionRequest {
+    ExecutionRequest {
+      cell_id: CellId(Uuid::from_u128(1)),
+      code: "foo".into(),
+      document_id: DocumentId(Uuid::from_u128(2)),
+      execution_id: ExecutionId(Uuid::from_u128(3)),
+    }
+  }
+
+  fn active_execution() -> ActiveExecution {
+    ActiveExecution {
+      idle: false,
+      request: execution_request(),
+      request_message_id: "foo".into(),
+      reply: false,
+      running: false,
+    }
+  }
+
+  #[test]
+  fn execution_completes_after_busy_reply_and_idle_in_either_order() {
+    fn check(messages: &[ExecutionMessage; 2]) {
+      let mut execution = active_execution();
+      execution.observe(&ExecutionMessage::Status {
+        execution_state: ExecutionState::Busy,
+      });
+
+      assert!(!execution.complete());
+
+      execution.observe(&messages[0]);
+      assert!(!execution.complete());
+
+      execution.observe(&messages[1]);
+      assert!(execution.complete());
+    }
+
+    let reply = || ExecutionMessage::ExecuteReply {
+      ename: None,
+      evalue: None,
+      execution_count: typeshare::U53::from(7_u8),
+      status: "ok".into(),
+      traceback: None,
+    };
+    let idle = || ExecutionMessage::Status {
+      execution_state: ExecutionState::Idle,
+    };
+
+    check(&[reply(), idle()]);
+    check(&[idle(), reply()]);
+  }
+
+  #[test]
+  fn execution_messages_are_normalized_without_transient_data() {
+    #[track_caller]
+    fn case(msg_type: &str, content: &Value, expected: ExecutionMessage) {
+      let envelope = mock_envelope(msg_type, content, None, Vec::new());
+      assert_eq!(normalize_execution_message(&envelope), Some(expected));
+    }
+
+    case(
+      "stream",
+      &serde_json::json!({"name": "stdout", "text": "foo\n"}),
+      ExecutionMessage::Stream {
+        name: "stdout".into(),
+        text: "foo\n".into(),
+      },
+    );
+    case(
+      "display_data",
+      &serde_json::json!({
+        "data": {"text/html": "<b>foo</b>"},
+        "metadata": {"foo": true},
+        "transient": {"display_id": "secret"}
+      }),
+      ExecutionMessage::DisplayData {
+        data: serde_json::json!({"text/html": "<b>foo</b>"})
+          .as_object()
+          .unwrap()
+          .clone(),
+        metadata: serde_json::json!({"foo": true})
+          .as_object()
+          .unwrap()
+          .clone(),
+      },
+    );
+    case(
+      "execute_result",
+      &serde_json::json!({
+        "data": {"text/plain": "42"},
+        "execution_count": 7,
+        "metadata": {}
+      }),
+      ExecutionMessage::ExecuteResult {
+        data: serde_json::json!({"text/plain": "42"})
+          .as_object()
+          .unwrap()
+          .clone(),
+        execution_count: typeshare::U53::from(7_u8),
+        metadata: JsonObject::new(),
+      },
+    );
+    case(
+      "error",
+      &serde_json::json!({
+        "ename": "FooError",
+        "evalue": "bar",
+        "traceback": ["baz"]
+      }),
+      ExecutionMessage::Error {
+        ename: "FooError".into(),
+        evalue: "bar".into(),
+        traceback: vec!["baz".into()],
+      },
+    );
+    case(
+      "execute_input",
+      &serde_json::json!({"code": "foo", "execution_count": 7}),
+      ExecutionMessage::ExecuteInput {
+        code: "foo".into(),
+        execution_count: typeshare::U53::from(7_u8),
+      },
+    );
+    case(
+      "status",
+      &serde_json::json!({"execution_state": "busy"}),
+      ExecutionMessage::Status {
+        execution_state: ExecutionState::Busy,
+      },
+    );
+    case(
+      "execute_reply",
+      &serde_json::json!({"execution_count": 7, "status": "ok"}),
+      ExecutionMessage::ExecuteReply {
+        ename: None,
+        evalue: None,
+        execution_count: typeshare::U53::from(7_u8),
+        status: "ok".into(),
+        traceback: None,
+      },
     );
   }
 

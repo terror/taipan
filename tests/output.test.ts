@@ -100,6 +100,30 @@ describe('output renderer registry', () => {
     });
   });
 
+  test('removes terminal styling from rendered text without changing output', () => {
+    const output: NotebookOutput = {
+      ename: 'SyntaxError',
+      evalue: 'invalid syntax',
+      output_type: 'error',
+      traceback: [
+        '\u001b[0;36mCell \u001b[0;32mIn[2], line 1\u001b[0m',
+        "\u001b[0;31m    print('foo')bar\u001b[0m",
+      ],
+    };
+    const original = structuredClone(output);
+
+    expect(renderOutput(output)).toMatchObject({
+      traceback: "Cell In[2], line 1\n    print('foo')bar",
+    });
+    expect(output).toEqual(original);
+    expect(
+      renderOutput(stream('stdout', '\u001b[31mfoo\u001b[0m'))
+    ).toMatchObject({ text: 'foo' });
+    expect(
+      renderOutput(display({ 'text/plain': '\u001b[32mfoo\u001b[0m' }))
+    ).toMatchObject({ text: 'foo' });
+  });
+
   test('uses an unchanged MIME bundle for unsupported output', () => {
     const data = {
       'application/javascript': 'alert(1)',
