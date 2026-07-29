@@ -21,7 +21,6 @@ use {
     net::{Ipv4Addr, TcpListener},
     path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
-    str::FromStr,
     sync::{
       Arc,
       atomic::{AtomicBool, Ordering},

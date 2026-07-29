@@ -18,6 +18,4 @@ pub enum LaunchError {
   Startup(String),
   #[error("failed to stop kernel process")]
   Stop(#[source] io::Error),
-  #[error("failed to connect kernel channel")]
-  Transport(#[source] TransportError),
 }

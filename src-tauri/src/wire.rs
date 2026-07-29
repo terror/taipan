@@ -13,7 +13,6 @@ pub enum Channel {
   Heartbeat,
   Iopub,
   Shell,
-  Stdin,
 }
 
 impl Display for Channel {
@@ -23,23 +22,7 @@ impl Display for Channel {
       Self::Heartbeat => "heartbeat",
       Self::Iopub => "iopub",
       Self::Shell => "shell",
-      Self::Stdin => "stdin",
     })
-  }
-}
-
-impl FromStr for Channel {
-  type Err = WireError;
-
-  fn from_str(value: &str) -> Result<Self, Self::Err> {
-    match value {
-      "control" => Ok(Self::Control),
-      "heartbeat" => Ok(Self::Heartbeat),
-      "iopub" => Ok(Self::Iopub),
-      "shell" => Ok(Self::Shell),
-      "stdin" => Ok(Self::Stdin),
-      _ => Err(WireError::UnknownChannel(value.into())),
-    }
   }
 }
 
@@ -191,7 +174,7 @@ impl WireProtocol {
 
     frames.extend_from_slice(&envelope.identities);
     frames.push(DELIMITER.to_vec());
-    frames.push(self.sign(&signed)?);
+    frames.push(self.sign(&signed));
     frames.extend([header, parent_header, metadata, content]);
     frames.extend_from_slice(&envelope.buffers);
 
@@ -202,19 +185,19 @@ impl WireProtocol {
     Self { key: key.into() }
   }
 
-  fn sign(&self, frames: &[&[u8]]) -> Result<Frame, WireError> {
+  fn sign(&self, frames: &[&[u8]]) -> Frame {
     if self.key.is_empty() {
-      return Ok(Frame::new());
+      return Frame::new();
     }
 
     let mut mac = Hmac::<Sha256>::new_from_slice(&self.key)
-      .map_err(|_| WireError::InvalidKeyLength)?;
+      .expect("HMAC-SHA256 accepts keys of any length");
 
     for frame in frames {
       mac.update(frame);
     }
 
-    Ok(hex::encode(mac.finalize().into_bytes()).into_bytes())
+    hex::encode(mac.finalize().into_bytes()).into_bytes()
   }
 
   fn verify(
@@ -234,7 +217,7 @@ impl WireProtocol {
     }
 
     let mut mac = Hmac::<Sha256>::new_from_slice(&self.key)
-      .map_err(|_| WireError::InvalidKeyLength)?;
+      .expect("HMAC-SHA256 accepts keys of any length");
 
     for frame in frames {
       mac.update(frame);
@@ -314,27 +297,6 @@ mod tests {
     assert_eq!(envelope.header.extra["extension"], true);
     assert_eq!(envelope.metadata["foo"], "bar");
     assert_eq!(envelope.content["extra"]["foo"], true);
-  }
-
-  #[test]
-  fn channel_names() {
-    #[track_caller]
-    fn case(name: &str, expected: Channel) {
-      let channel = name.parse::<Channel>().unwrap();
-      assert_eq!(channel, expected);
-      assert_eq!(channel.to_string(), name);
-    }
-
-    case("control", Channel::Control);
-    case("heartbeat", Channel::Heartbeat);
-    case("iopub", Channel::Iopub);
-    case("shell", Channel::Shell);
-    case("stdin", Channel::Stdin);
-
-    assert!(matches!(
-      "foo".parse::<Channel>(),
-      Err(WireError::UnknownChannel(channel)) if channel == "foo"
-    ));
   }
 
   #[test]

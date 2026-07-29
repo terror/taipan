@@ -8,7 +8,7 @@ import {
   beginExecution,
 } from '../src/lib/execution';
 import {
-  applyTransaction,
+  commitCellExecution,
   createNotebookSession,
   isCodeCell,
 } from '../src/lib/notebook';
@@ -51,11 +51,7 @@ function apply(
 function reply(): ExecutionMessage {
   return {
     type: 'execute_reply',
-    ename: null,
-    evalue: null,
     execution_count: 7,
-    status: 'ok',
-    traceback: null,
   };
 }
 
@@ -87,7 +83,6 @@ describe('execution lifecycle', () => {
     const execution = apply(
       begin(),
       { type: 'status', execution_state: 'busy' },
-      { type: 'execute_input', code: 'foo', execution_count: 7 },
       { type: 'stream', name: 'stdout', text: 'foo\n' },
       {
         type: 'display_data',
@@ -167,18 +162,12 @@ describe('execution lifecycle', () => {
       reply(),
       { type: 'status', execution_state: 'idle' }
     );
-    const executed = applyTransaction(session, [
-      {
-        type: 'replace-outputs',
-        cell: CELL_ID,
-        outputs: execution.outputs,
-      },
-      {
-        type: 'set-execution-count',
-        cell: CELL_ID,
-        executionCount: execution.executionCount,
-      },
-    ]);
+    const executed = commitCellExecution(
+      session,
+      CELL_ID,
+      execution.outputs,
+      execution.executionCount
+    );
     const cell = executed.notebook.cells[0];
 
     if (!isCodeCell(cell)) {
