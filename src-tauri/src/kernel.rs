@@ -226,7 +226,10 @@ impl Default for LocalKernelManager {
 }
 
 impl LocalKernelManager {
-  #[allow(clippy::missing_errors_doc)]
+  /// # Errors
+  ///
+  /// Returns an error if the kernel does not exist, is already executing, or
+  /// its command channel is closed.
   pub async fn execute(
     &self,
     id: KernelId,
@@ -255,7 +258,10 @@ impl LocalKernelManager {
     }
   }
 
-  #[allow(clippy::missing_errors_doc)]
+  /// # Errors
+  ///
+  /// Returns an error if the kernel does not exist, has failed, or its
+  /// supervisor task cannot be joined or reports an error.
   pub async fn shutdown(&mut self, id: KernelId) -> Result<(), ManagerError> {
     let kernel = self
       .kernels
@@ -321,7 +327,9 @@ impl LocalKernelManager {
     id
   }
 
-  #[allow(clippy::missing_errors_doc)]
+  /// # Errors
+  ///
+  /// Returns an error if the kernel does not exist.
   pub fn state(&self, id: KernelId) -> Result<KernelState, ManagerError> {
     self
       .kernels
@@ -330,7 +338,9 @@ impl LocalKernelManager {
       .ok_or(ManagerError::NotFound(id))
   }
 
-  #[allow(clippy::missing_errors_doc)]
+  /// # Errors
+  ///
+  /// Returns an error if the kernel does not exist.
   pub fn subscribe_state(
     &self,
     id: KernelId,
@@ -342,7 +352,9 @@ impl LocalKernelManager {
       .ok_or(ManagerError::NotFound(id))
   }
 
-  #[allow(clippy::missing_errors_doc)]
+  /// # Errors
+  ///
+  /// Returns an error if the kernel does not exist or fails before starting.
   pub async fn wait_for_start(
     &self,
     id: KernelId,

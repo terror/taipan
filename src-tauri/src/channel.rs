@@ -9,7 +9,6 @@ pub struct ChannelDriver {
   task: Option<JoinHandle<()>>,
 }
 
-#[allow(clippy::missing_errors_doc)]
 impl ChannelDriver {
   pub fn cancel(&self) {
     self.cancellation.send_replace(true);
@@ -20,6 +19,10 @@ impl ChannelDriver {
     self.channel
   }
 
+  /// # Errors
+  ///
+  /// Returns an error if the configuration or channel is invalid, or if the
+  /// `ZeroMQ` socket cannot be configured, connected, or subscribed.
   pub async fn connect(
     channel: Channel,
     endpoint: &str,
@@ -90,6 +93,9 @@ impl ChannelDriver {
     ))
   }
 
+  /// # Errors
+  ///
+  /// Returns an error if the channel task cannot be joined.
   pub async fn shutdown(mut self) -> Result<(), TransportError> {
     self.cancel();
 
@@ -100,6 +106,11 @@ impl ChannelDriver {
     Ok(())
   }
 
+  /// # Errors
+  ///
+  /// Returns an error if the channel cannot send messages, the envelope cannot
+  /// be encoded within the configured limits, or the command queue is full or
+  /// closed.
   pub fn try_send(&self, envelope: &Envelope) -> Result<(), TransportError> {
     if self.channel == Channel::Iopub {
       return Err(TransportError::InvalidChannel(self.channel));
@@ -192,12 +203,15 @@ pub struct HeartbeatDriver {
   task: Option<JoinHandle<()>>,
 }
 
-#[allow(clippy::missing_errors_doc)]
 impl HeartbeatDriver {
   pub fn cancel(&self) {
     self.cancellation.send_replace(true);
   }
 
+  /// # Errors
+  ///
+  /// Returns an error if the configuration is invalid or the `ZeroMQ` socket
+  /// cannot be configured or connected.
   pub async fn connect(
     endpoint: &str,
     config: DriverConfig,
@@ -234,6 +248,9 @@ impl HeartbeatDriver {
     ))
   }
 
+  /// # Errors
+  ///
+  /// Returns an error if the heartbeat task cannot be joined.
   pub async fn shutdown(mut self) -> Result<(), TransportError> {
     self.cancel();
 
@@ -244,6 +261,10 @@ impl HeartbeatDriver {
     Ok(())
   }
 
+  /// # Errors
+  ///
+  /// Returns an error if the payload exceeds the configured limits or the
+  /// command queue is full or closed.
   pub fn try_ping(&self, bytes: Vec<u8>) -> Result<(), TransportError> {
     validate_frame(&bytes, &self.config)?;
 
