@@ -3,16 +3,16 @@ use super::*;
 const CONNECTION_FILE: &str = "{connection_file}";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct ConnectionData {
-  pub control_port: u16,
-  pub hb_port: u16,
-  pub iopub_port: u16,
-  pub ip: String,
-  pub key: String,
-  pub shell_port: u16,
-  pub signature_scheme: String,
-  pub stdin_port: u16,
-  pub transport: String,
+struct ConnectionData {
+  control_port: u16,
+  hb_port: u16,
+  iopub_port: u16,
+  ip: String,
+  key: String,
+  shell_port: u16,
+  signature_scheme: String,
+  stdin_port: u16,
+  transport: String,
 }
 
 impl ConnectionData {
@@ -44,7 +44,7 @@ impl ConnectionData {
   }
 
   #[must_use]
-  pub fn endpoint(&self, channel: Channel) -> String {
+  fn endpoint(&self, channel: Channel) -> String {
     let port = match channel {
       Channel::Control => self.control_port,
       Channel::Heartbeat => self.hb_port,
@@ -414,24 +414,15 @@ enum SupervisorEvent {
   Shutdown,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct KernelInfo {
-  pub banner: String,
-  pub implementation: String,
-  pub implementation_version: String,
-  pub language_info: JsonObject,
-  pub protocol_version: String,
-}
-
-pub struct KernelChannels {
-  pub control: ChannelDriver,
-  pub control_events: mpsc::Receiver<TransportEvent>,
-  pub heartbeat: HeartbeatDriver,
-  pub heartbeat_events: mpsc::Receiver<TransportEvent>,
-  pub iopub: ChannelDriver,
-  pub iopub_events: mpsc::Receiver<TransportEvent>,
-  pub shell: ChannelDriver,
-  pub shell_events: mpsc::Receiver<TransportEvent>,
+struct KernelChannels {
+  control: ChannelDriver,
+  control_events: mpsc::Receiver<TransportEvent>,
+  heartbeat: HeartbeatDriver,
+  heartbeat_events: mpsc::Receiver<TransportEvent>,
+  iopub: ChannelDriver,
+  iopub_events: mpsc::Receiver<TransportEvent>,
+  shell: ChannelDriver,
+  shell_events: mpsc::Receiver<TransportEvent>,
 }
 
 impl KernelChannels {
@@ -512,26 +503,14 @@ impl KernelChannels {
   }
 }
 
-pub struct LocalKernel {
-  pub channels: Option<KernelChannels>,
-  info: KernelInfo,
+struct LocalKernel {
+  channels: Option<KernelChannels>,
   process: Option<KernelProcess>,
   session: String,
 }
 
 impl LocalKernel {
-  #[must_use]
-  pub fn info(&self) -> &KernelInfo {
-    &self.info
-  }
-
-  #[allow(clippy::missing_errors_doc)]
-  pub async fn launch(spec: KernelLaunchSpec) -> Result<Self, LaunchError> {
-    Self::launch_with_config(spec, LaunchConfig::default()).await
-  }
-
-  #[allow(clippy::missing_errors_doc)]
-  pub async fn launch_with_config(
+  async fn launch_with_config(
     spec: KernelLaunchSpec,
     config: LaunchConfig,
   ) -> Result<Self, LaunchError> {
@@ -606,8 +585,8 @@ impl LocalKernel {
       establish_readiness(&mut process, &mut channels, &session),
     )
     .await;
-    let info = match readiness {
-      Ok(Ok(info)) => info,
+    match readiness {
+      Ok(Ok(())) => {}
       Ok(Err(reason)) => {
         channels.shutdown().await;
         let cleanup = process.stop().await.err();
@@ -621,25 +600,13 @@ impl LocalKernel {
           cleanup,
         )));
       }
-    };
+    }
 
     Ok(Self {
       channels: Some(channels),
-      info,
       process: Some(process),
       session,
     })
-  }
-
-  #[allow(clippy::missing_errors_doc)]
-  pub async fn shutdown(mut self) -> Result<(), LaunchError> {
-    shutdown_kernel(
-      &mut self,
-      Duration::from_secs(5),
-      Duration::from_secs(2),
-      Duration::from_millis(50),
-    )
-    .await
   }
 }
 
@@ -1357,14 +1324,14 @@ async fn establish_readiness(
   process: &mut KernelProcess,
   channels: &mut KernelChannels,
   session: &str,
-) -> Result<KernelInfo, String> {
+) -> Result<(), String> {
   let ping = Uuid::new_v4().as_bytes().to_vec();
   channels
     .heartbeat
     .try_ping(ping.clone())
     .map_err(|error| error.to_string())?;
   let mut heartbeat_ready = false;
-  let mut info = None;
+  let mut info_ready = false;
   let mut iopub_ready = false;
   let mut requests = BTreeSet::new();
   let mut request_interval = time::interval_at(
@@ -1377,11 +1344,8 @@ async fn establish_readiness(
     .map_err(|error| error.to_string())?;
 
   loop {
-    if heartbeat_ready
-      && iopub_ready
-      && let Some(info) = info.take()
-    {
-      return Ok(info);
+    if heartbeat_ready && info_ready && iopub_ready {
+      return Ok(());
     }
 
     tokio::select! {
@@ -1407,7 +1371,8 @@ async fn establish_readiness(
           if envelope.header.msg_type == MessageType::from("kernel_info_reply")
             && correlated(envelope, &requests)
           {
-            info = Some(validate_kernel_info(envelope)?);
+            validate_kernel_info(envelope)?;
+            info_ready = true;
           }
         }
         Some(TransportEvent::Error { error, .. }) => {
@@ -1619,13 +1584,15 @@ fn valid_iopub_welcome(envelope: &Envelope) -> bool {
       .is_some_and(Value::is_string)
 }
 
-fn validate_kernel_info(envelope: &Envelope) -> Result<KernelInfo, String> {
-  fn string(content: &JsonObject, name: &str) -> Result<String, String> {
+fn validate_kernel_info(envelope: &Envelope) -> Result<(), String> {
+  fn string<'a>(
+    content: &'a JsonObject,
+    name: &str,
+  ) -> Result<&'a str, String> {
     content
       .get(name)
       .and_then(Value::as_str)
       .filter(|value| !value.is_empty())
-      .map(str::to_owned)
       .ok_or_else(|| format!("kernel_info_reply has invalid `{name}`"))
   }
 
@@ -1644,7 +1611,7 @@ fn validate_kernel_info(envelope: &Envelope) -> Result<KernelInfo, String> {
     return Err("kernel_info_reply has invalid `protocol_version`".into());
   }
 
-  let language_info = envelope
+  envelope
     .content
     .get("language_info")
     .and_then(Value::as_object)
@@ -1658,21 +1625,15 @@ fn validate_kernel_info(envelope: &Envelope) -> Result<KernelInfo, String> {
             .is_some_and(|value| !value.is_empty())
         })
     })
-    .cloned()
     .ok_or_else(|| {
       "kernel_info_reply has invalid `language_info`".to_string()
     })?;
 
-  Ok(KernelInfo {
-    banner: string(&envelope.content, "banner")?,
-    implementation: string(&envelope.content, "implementation")?,
-    implementation_version: string(
-      &envelope.content,
-      "implementation_version",
-    )?,
-    language_info,
-    protocol_version,
-  })
+  string(&envelope.content, "banner")?;
+  string(&envelope.content, "implementation")?;
+  string(&envelope.content, "implementation_version")?;
+
+  Ok(())
 }
 
 fn write_connection_file(
