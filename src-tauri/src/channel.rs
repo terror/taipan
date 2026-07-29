@@ -755,7 +755,7 @@ mod tests {
   }
 
   fn protocol() -> Arc<WireProtocol> {
-    Arc::new(WireProtocol::new(b"foo", "hmac-sha256").unwrap())
+    Arc::new(WireProtocol::new(b"foo"))
   }
 
   #[tokio::test]

@@ -144,42 +144,6 @@ impl Serialize for ParentHeader {
   }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SignatureScheme {
-  HmacSha1,
-  HmacSha224,
-  HmacSha256,
-  HmacSha384,
-  HmacSha512,
-}
-
-impl fmt::Display for SignatureScheme {
-  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-    formatter.write_str(match self {
-      Self::HmacSha1 => "hmac-sha1",
-      Self::HmacSha224 => "hmac-sha224",
-      Self::HmacSha256 => "hmac-sha256",
-      Self::HmacSha384 => "hmac-sha384",
-      Self::HmacSha512 => "hmac-sha512",
-    })
-  }
-}
-
-impl FromStr for SignatureScheme {
-  type Err = WireError;
-
-  fn from_str(value: &str) -> Result<Self, Self::Err> {
-    match value {
-      "hmac-sha1" => Ok(Self::HmacSha1),
-      "hmac-sha224" => Ok(Self::HmacSha224),
-      "hmac-sha256" => Ok(Self::HmacSha256),
-      "hmac-sha384" => Ok(Self::HmacSha384),
-      "hmac-sha512" => Ok(Self::HmacSha512),
-      _ => Err(WireError::UnsupportedScheme(value.into())),
-    }
-  }
-}
-
 #[derive(Debug, Error)]
 pub enum WireError {
   #[error("message signature did not verify")]
@@ -206,13 +170,10 @@ pub enum WireError {
   TooFewFrames { actual: usize },
   #[error("unknown Jupyter channel `{0}`")]
   UnknownChannel(String),
-  #[error("unsupported signature scheme `{0}`")]
-  UnsupportedScheme(String),
 }
 
 pub struct WireProtocol {
   key: Vec<u8>,
-  scheme: SignatureScheme,
 }
 
 #[allow(clippy::missing_errors_doc)]
@@ -265,14 +226,8 @@ impl WireProtocol {
     Ok(frames)
   }
 
-  pub fn new(
-    key: impl Into<Vec<u8>>,
-    signature_scheme: &str,
-  ) -> Result<Self, WireError> {
-    Ok(Self {
-      key: key.into(),
-      scheme: signature_scheme.parse()?,
-    })
+  pub fn new(key: impl Into<Vec<u8>>) -> Self {
+    Self { key: key.into() }
   }
 
   fn sign(&self, frames: &[&[u8]]) -> Result<Frame, WireError> {
@@ -280,31 +235,14 @@ impl WireProtocol {
       return Ok(Frame::new());
     }
 
-    macro_rules! sign {
-      ($digest:ty) => {{
-        let mut mac = Hmac::<$digest>::new_from_slice(&self.key)
-          .map_err(|_| WireError::InvalidKeyLength)?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(&self.key)
+      .map_err(|_| WireError::InvalidKeyLength)?;
 
-        for frame in frames {
-          mac.update(frame);
-        }
-
-        hex::encode(mac.finalize().into_bytes()).into_bytes()
-      }};
+    for frame in frames {
+      mac.update(frame);
     }
 
-    Ok(match self.scheme {
-      SignatureScheme::HmacSha1 => sign!(Sha1),
-      SignatureScheme::HmacSha224 => sign!(Sha224),
-      SignatureScheme::HmacSha256 => sign!(Sha256),
-      SignatureScheme::HmacSha384 => sign!(Sha384),
-      SignatureScheme::HmacSha512 => sign!(Sha512),
-    })
-  }
-
-  #[must_use]
-  pub fn signature_scheme(&self) -> SignatureScheme {
-    self.scheme
+    Ok(hex::encode(mac.finalize().into_bytes()).into_bytes())
   }
 
   fn verify(
@@ -323,28 +261,16 @@ impl WireProtocol {
       return Err(WireError::InvalidSignatureEncoding);
     }
 
-    macro_rules! verify {
-      ($digest:ty) => {{
-        let mut mac = Hmac::<$digest>::new_from_slice(&self.key)
-          .map_err(|_| WireError::InvalidKeyLength)?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(&self.key)
+      .map_err(|_| WireError::InvalidKeyLength)?;
 
-        for frame in frames {
-          mac.update(frame);
-        }
-
-        mac
-          .verify_slice(&decoded)
-          .map_err(|_| WireError::BadSignature)
-      }};
+    for frame in frames {
+      mac.update(frame);
     }
 
-    match self.scheme {
-      SignatureScheme::HmacSha1 => verify!(Sha1),
-      SignatureScheme::HmacSha224 => verify!(Sha224),
-      SignatureScheme::HmacSha256 => verify!(Sha256),
-      SignatureScheme::HmacSha384 => verify!(Sha384),
-      SignatureScheme::HmacSha512 => verify!(Sha512),
-    }
+    mac
+      .verify_slice(&decoded)
+      .map_err(|_| WireError::BadSignature)
   }
 }
 
@@ -380,7 +306,6 @@ mod tests {
   struct Fixture {
     frames: Vec<String>,
     key: String,
-    scheme: String,
   }
 
   impl Fixture {
@@ -397,7 +322,7 @@ mod tests {
     }
 
     fn protocol(&self) -> WireProtocol {
-      WireProtocol::new(self.key.as_bytes(), &self.scheme).unwrap()
+      WireProtocol::new(self.key.as_bytes())
     }
   }
 
@@ -523,29 +448,14 @@ mod tests {
   }
 
   #[test]
-  fn signature_schemes() {
-    #[track_caller]
-    fn case(scheme: &str, signature_length: usize) {
-      let fixture = Fixture::load(UNSIGNED);
-      let envelope = fixture.protocol().decode(&fixture.frames()).unwrap();
-      let protocol = WireProtocol::new(b"foo", scheme).unwrap();
-      let frames = protocol.encode(&envelope).unwrap();
-      let delimiter =
-        frames.iter().position(|frame| frame == DELIMITER).unwrap();
+  fn signs_with_sha256() {
+    let fixture = Fixture::load(UNSIGNED);
+    let envelope = fixture.protocol().decode(&fixture.frames()).unwrap();
+    let protocol = WireProtocol::new(b"foo");
+    let frames = protocol.encode(&envelope).unwrap();
+    let delimiter = frames.iter().position(|frame| frame == DELIMITER).unwrap();
 
-      assert_eq!(frames[delimiter + 1].len(), signature_length);
-      assert_eq!(protocol.decode(&frames).unwrap(), envelope);
-    }
-
-    case("hmac-sha1", 40);
-    case("hmac-sha224", 56);
-    case("hmac-sha256", 64);
-    case("hmac-sha384", 96);
-    case("hmac-sha512", 128);
-
-    assert!(matches!(
-      WireProtocol::new(b"foo", "hmac-foo"),
-      Err(WireError::UnsupportedScheme(scheme)) if scheme == "hmac-foo"
-    ));
+    assert_eq!(frames[delimiter + 1].len(), 64);
+    assert_eq!(protocol.decode(&frames).unwrap(), envelope);
   }
 }
