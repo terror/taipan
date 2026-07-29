@@ -62,7 +62,6 @@ pub struct KernelLaunchSpec {
   pub argv: Vec<String>,
   pub env: BTreeMap<String, String>,
   pub language: String,
-  pub resource_dir: Option<PathBuf>,
 }
 
 impl KernelLaunchSpec {
@@ -76,7 +75,6 @@ impl KernelLaunchSpec {
       argv,
       env,
       language: language.into(),
-      resource_dir: None,
     }
   }
 }
