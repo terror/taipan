@@ -1,9 +1,9 @@
 use {
   serde::de::DeserializeOwned,
   std::{collections::BTreeMap, env},
-  taipan_lib::kernel::{
-    ExecutionMessage, ExecutionRequest, ExecutionState, KernelLaunchSpec,
-    LocalKernel, LocalKernelManager,
+  taipan_lib::{
+    ExecutionEvent, ExecutionMessage, ExecutionRequest, ExecutionState,
+    KernelId, KernelLaunchSpec, LocalKernel, LocalKernelManager,
   },
   tokio::{sync::mpsc, time},
 };
@@ -28,8 +28,8 @@ fn opaque<T: DeserializeOwned>(value: &str) -> T {
 
 async fn execute(
   manager: &LocalKernelManager,
-  kernel_id: taipan_lib::kernel::KernelId,
-  events: &mut mpsc::UnboundedReceiver<taipan_lib::kernel::ExecutionEvent>,
+  kernel_id: KernelId,
+  events: &mut mpsc::UnboundedReceiver<ExecutionEvent>,
   code: &str,
   suffix: &str,
 ) -> Vec<ExecutionMessage> {

@@ -650,10 +650,23 @@ impl LocalKernel {
       redactor,
     )?;
     let deadline = Instant::now() + config.startup_timeout;
-    let channels = time::timeout_at(
-      deadline,
-      KernelChannels::connect(&connection, protocol, driver_config),
-    )
+    let channels = time::timeout_at(deadline, async {
+      loop {
+        match KernelChannels::connect(
+          &connection,
+          protocol.clone(),
+          driver_config.clone(),
+        )
+        .await
+        {
+          Ok(channels) => break Ok(channels),
+          Err(TransportError::Connect(_)) => {
+            time::sleep(Duration::from_millis(10)).await;
+          }
+          Err(error) => break Err(error),
+        }
+      }
+    })
     .await;
     let mut channels = match channels {
       Ok(Ok(channels)) => channels,
@@ -2169,6 +2182,9 @@ impl Drop for WindowsJob {
 mod tests {
   use super::*;
 
+  static MOCK_KERNEL_LOCK: tokio::sync::Mutex<()> =
+    tokio::sync::Mutex::const_new(());
+
   #[derive(Clone, Copy, Eq, PartialEq)]
   enum MockBehavior {
     Execute,
@@ -2187,6 +2203,24 @@ mod tests {
     .into_iter()
     .map(|(name, value)| (name.into(), value.into()))
     .collect()
+  }
+
+  async fn bind_mock(socket: &mut impl Socket, endpoint: &str) {
+    time::timeout(Duration::from_secs(3), async {
+      loop {
+        match socket.bind(endpoint).await {
+          Ok(_) => return,
+          Err(ZmqError::Network(error))
+            if error.kind() == io::ErrorKind::AddrInUse =>
+          {
+            time::sleep(Duration::from_millis(10)).await;
+          }
+          Err(error) => panic!("{error}"),
+        }
+      }
+    })
+    .await
+    .unwrap();
   }
 
   fn frames_to_message(frames: Vec<Vec<u8>>) -> ZmqMessage {
@@ -2246,39 +2280,28 @@ mod tests {
     let mut shell = RouterSocket::new();
     let mut stdin = RouterSocket::new();
 
-    control
-      .bind(&connection.endpoint(Channel::Control))
-      .await
-      .unwrap();
-    heartbeat
-      .bind(&connection.endpoint(Channel::Heartbeat))
-      .await
-      .unwrap();
-    iopub
-      .bind(&connection.endpoint(Channel::Iopub))
-      .await
-      .unwrap();
-    shell
-      .bind(&connection.endpoint(Channel::Shell))
-      .await
-      .unwrap();
-    stdin
-      .bind(&connection.endpoint(Channel::Stdin))
-      .await
-      .unwrap();
+    bind_mock(&mut control, &connection.endpoint(Channel::Control)).await;
+    bind_mock(&mut heartbeat, &connection.endpoint(Channel::Heartbeat)).await;
+    bind_mock(&mut iopub, &connection.endpoint(Channel::Iopub)).await;
+    bind_mock(&mut shell, &connection.endpoint(Channel::Shell)).await;
+    bind_mock(&mut stdin, &connection.endpoint(Channel::Stdin)).await;
 
     let _child = env::var_os("MOCK_CHILD_FILE").map(|path| {
       let child = StdCommand::new("sleep").arg("60").spawn().unwrap();
       fs::write(path, child.id().to_string()).unwrap();
       child
     });
+    let exit_file = env::var_os("MOCK_EXIT_FILE");
     let mut heartbeat_open = true;
     let mut heartbeat_replies = 0;
-    let mut iopub_ready = false;
-    let mut shell_ready = false;
 
     loop {
       tokio::select! {
+        () = time::sleep(Duration::from_millis(10)), if behavior == MockBehavior::Exit => {
+          if exit_file.as_ref().is_some_and(|path| Path::new(path).exists()) {
+            return;
+          }
+        }
         request = control.recv() => {
           let request = protocol
             .decode(&request.unwrap().into_vec().into_iter().map(|frame| frame.to_vec()).collect::<Vec<_>>())
@@ -2315,11 +2338,6 @@ mod tests {
           } else {
             heartbeat.send(request).await.unwrap();
             heartbeat_replies += 1;
-
-            if behavior == MockBehavior::Exit && iopub_ready && shell_ready {
-              time::sleep(Duration::from_millis(100)).await;
-              return;
-            }
           }
         }
         subscription = iopub.recv() => {
@@ -2334,12 +2352,6 @@ mod tests {
             .send(frames_to_message(protocol.encode(&welcome).unwrap()))
             .await
             .unwrap();
-          iopub_ready = true;
-
-          if behavior == MockBehavior::Exit && heartbeat_replies > 0 && shell_ready {
-            time::sleep(Duration::from_millis(100)).await;
-            return;
-          }
         }
         request = shell.recv() => {
           let request = protocol
@@ -2369,12 +2381,6 @@ mod tests {
               .send(frames_to_message(protocol.encode(&reply).unwrap()))
               .await
               .unwrap();
-            shell_ready = true;
-
-            if behavior == MockBehavior::Exit && heartbeat_replies > 0 && iopub_ready {
-              time::sleep(Duration::from_millis(100)).await;
-              return;
-            }
           } else if request.header.msg_type == MessageType::from("execute_request")
             && behavior == MockBehavior::Execute
           {
@@ -2520,19 +2526,35 @@ mod tests {
 
   #[tokio::test]
   async fn manager_confirms_process_exit() {
+    let _guard = MOCK_KERNEL_LOCK.lock().await;
     let runtime = tempfile::tempdir().unwrap();
     let mut manager = LocalKernelManager::new(manager_config(runtime.path()));
-    let id = manager.start(mock_spec(MockBehavior::Exit, []));
+    let exit_file = runtime.path().join("foo");
+    let id = manager.start(mock_spec(
+      MockBehavior::Exit,
+      [(
+        "MOCK_EXIT_FILE".into(),
+        exit_file.to_string_lossy().into_owned(),
+      )],
+    ));
 
-    manager.wait_for_start(id).await.unwrap();
+    let result = manager.wait_for_start(id).await;
+    assert!(
+      result.is_ok(),
+      "{result:?}: {:?}",
+      manager.shutdown(id).await
+    );
+    fs::write(&exit_file, "bar").unwrap();
     wait_for_state(&manager, id, KernelState::Exited).await;
     manager.shutdown(id).await.unwrap();
+    fs::remove_file(exit_file).unwrap();
 
     assert_eq!(fs::read_dir(runtime.path()).unwrap().count(), 0);
   }
 
   #[tokio::test]
   async fn manager_routes_one_correlated_execution() {
+    let _guard = MOCK_KERNEL_LOCK.lock().await;
     let runtime = tempfile::tempdir().unwrap();
     let mut manager = LocalKernelManager::new(manager_config(runtime.path()));
     let (events, mut event_receiver) = mpsc::unbounded_channel();
@@ -2594,6 +2616,7 @@ mod tests {
 
   #[tokio::test]
   async fn manager_drop_cleans_up() {
+    let _guard = MOCK_KERNEL_LOCK.lock().await;
     let directory = tempfile::tempdir().unwrap();
     let marker = directory.path().join("foo");
     let runtime = tempfile::tempdir().unwrap();
@@ -2642,6 +2665,7 @@ mod tests {
 
   #[tokio::test]
   async fn manager_gracefully_shuts_down_once() {
+    let _guard = MOCK_KERNEL_LOCK.lock().await;
     let directory = tempfile::tempdir().unwrap();
     let marker = directory.path().join("foo");
     let runtime = tempfile::tempdir().unwrap();
@@ -2663,6 +2687,7 @@ mod tests {
 
   #[tokio::test]
   async fn manager_marks_heartbeat_loss_unresponsive() {
+    let _guard = MOCK_KERNEL_LOCK.lock().await;
     let runtime = tempfile::tempdir().unwrap();
     let mut manager = LocalKernelManager::new(manager_config(runtime.path()));
     let id = manager.start(mock_spec(MockBehavior::HeartbeatLoss, []));
@@ -2680,6 +2705,7 @@ mod tests {
   async fn manager_timeout_terminates_child_process() {
     use nix::sys::signal::kill;
 
+    let _guard = MOCK_KERNEL_LOCK.lock().await;
     let directory = tempfile::tempdir().unwrap();
     let child_file = directory.path().join("foo");
     let shutdown_file = directory.path().join("bar");
