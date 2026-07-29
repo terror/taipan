@@ -1,6 +1,9 @@
 use {
   error::Error,
-  kernel::{KernelId, LocalKernelManager},
+  kernel::{
+    CellId, DocumentId, ExecutionId, ExecutionRequest, KernelId,
+    LocalKernelManager,
+  },
   notebook::Notebook,
   serde::{Deserialize, Serialize, Serializer, de},
   serde_json::{Map, Value},
@@ -15,7 +18,7 @@ use {
       atomic::{AtomicBool, Ordering},
     },
   },
-  tauri::Manager,
+  tauri::{Emitter, Manager},
   tempfile::Builder,
   thiserror::Error,
   typeshare::{U53, typeshare},
@@ -31,9 +34,21 @@ pub mod wire;
 type Result<T = (), E = Error> = std::result::Result<T, E>;
 
 #[derive(Default)]
-struct KernelState {
+struct ApplicationState {
   current: Option<KernelId>,
   manager: LocalKernelManager,
+}
+
+#[derive(Clone, Copy, Serialize)]
+struct KernelSelection {
+  kernel_id: KernelId,
+  state: kernel::KernelState,
+}
+
+#[derive(Clone, Copy, Serialize)]
+struct KernelStatusEvent {
+  kernel_id: KernelId,
+  state: kernel::KernelState,
 }
 
 #[tauri::command]
@@ -53,8 +68,9 @@ async fn save_notebook(path: PathBuf, notebook: Notebook) -> Result {
 #[tauri::command]
 async fn select_kernel(
   name: Option<String>,
-  state: tauri::State<'_, tokio::sync::Mutex<KernelState>>,
-) -> std::result::Result<(), String> {
+  app: tauri::AppHandle,
+  state: tauri::State<'_, tokio::sync::Mutex<ApplicationState>>,
+) -> std::result::Result<Option<KernelSelection>, String> {
   let mut state = state.inner().lock().await;
 
   if let Some(id) = state.current.take() {
@@ -66,7 +82,7 @@ async fn select_kernel(
   }
 
   let Some(name) = name else {
-    return Ok(());
+    return Ok(None);
   };
 
   let spec = tauri::async_runtime::spawn_blocking(move || {
@@ -74,16 +90,73 @@ async fn select_kernel(
   })
   .await
   .map_err(|error| error.to_string())??;
-  let id = state.manager.start(spec);
-  state
+  let (events, mut event_receiver) = tokio::sync::mpsc::unbounded_channel();
+  let id = state.manager.start_with_events(spec, events);
+  let kernel_state = state
     .manager
     .wait_for_start(id)
     .await
     .map_err(|error| error.to_string())?;
+  let mut status = state
+    .manager
+    .subscribe_state(id)
+    .map_err(|error| error.to_string())?;
 
   state.current = Some(id);
 
-  Ok(())
+  let event_app = app.clone();
+  tauri::async_runtime::spawn(async move {
+    while let Some(event) = event_receiver.recv().await {
+      let _ = event_app.emit("execution-message", event);
+    }
+  });
+
+  tauri::async_runtime::spawn(async move {
+    while status.changed().await.is_ok() {
+      let _ = app.emit(
+        "kernel-status",
+        KernelStatusEvent {
+          kernel_id: id,
+          state: *status.borrow_and_update(),
+        },
+      );
+    }
+  });
+
+  Ok(Some(KernelSelection {
+    kernel_id: id,
+    state: kernel_state,
+  }))
+}
+
+#[tauri::command]
+async fn execute_cell(
+  kernel_id: KernelId,
+  document_id: DocumentId,
+  cell_id: CellId,
+  execution_id: ExecutionId,
+  code: String,
+  state: tauri::State<'_, tokio::sync::Mutex<ApplicationState>>,
+) -> std::result::Result<(), String> {
+  let state = state.inner().lock().await;
+
+  if state.current != Some(kernel_id) {
+    return Err("kernel is no longer selected".into());
+  }
+
+  state
+    .manager
+    .execute(
+      kernel_id,
+      ExecutionRequest {
+        cell_id,
+        code,
+        document_id,
+        execution_id,
+      },
+    )
+    .await
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -104,10 +177,11 @@ async fn discover_kernelspecs(
 pub fn run() {
   let exiting = Arc::new(AtomicBool::new(false));
   let app = tauri::Builder::default()
-    .manage(tokio::sync::Mutex::new(KernelState::default()))
+    .manage(tokio::sync::Mutex::new(ApplicationState::default()))
     .plugin(tauri_plugin_dialog::init())
     .invoke_handler(tauri::generate_handler![
       discover_kernelspecs,
+      execute_cell,
       open_notebook,
       save_notebook,
       select_kernel
@@ -124,7 +198,7 @@ pub fn run() {
       let app = app.clone();
       tauri::async_runtime::spawn(async move {
         {
-          let state = app.state::<tokio::sync::Mutex<KernelState>>();
+          let state = app.state::<tokio::sync::Mutex<ApplicationState>>();
           state.lock().await.manager.shutdown_all().await;
         }
 

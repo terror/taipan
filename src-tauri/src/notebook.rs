@@ -407,6 +407,28 @@ mod tests {
   }
 
   #[test]
+  fn execution_results_survive_save_and_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("foo.ipynb");
+    let mut notebook = serde_json::from_str::<Notebook>(FIXTURE).unwrap();
+    let NotebookCell::Code(cell) = &mut notebook.cells[0] else {
+      panic!();
+    };
+
+    cell.execution_count = ExecutionCount(Some(U53::from(7_u8)));
+    cell.outputs = vec![NotebookOutput::Stream(StreamOutput {
+      extra: Map::new(),
+      name: "stdout".into(),
+      output_type: "stream".into(),
+      text: Source::Text("foo\n".into()),
+    })];
+
+    notebook.save(&path).unwrap();
+
+    assert_eq!(Notebook::open(&path).unwrap(), notebook);
+  }
+
+  #[test]
   fn rejects_unsupported_format() {
     let directory = tempfile::tempdir().unwrap();
 

@@ -5,6 +5,15 @@ import { SavedOutputs } from '@/components/saved-outputs';
 import { Button } from '@/components/ui/button';
 import { cellEditorLanguage } from '@/lib/editor';
 import {
+  type ActiveExecution,
+  type KernelSelection,
+  applyExecutionEvent,
+  beginExecution,
+  executeCell,
+  listenForExecutionEvents,
+  listenForKernelStatus,
+} from '@/lib/execution';
+import {
   type NotebookSession,
   applyTransaction,
   createNotebookSession,
@@ -17,8 +26,15 @@ import {
   sourceText,
 } from '@/lib/notebook';
 import { confirm, open } from '@tauri-apps/plugin-dialog';
-import { AlertCircle, FileCode2, FolderOpen, Save } from 'lucide-react';
-import { useState } from 'react';
+import {
+  AlertCircle,
+  FileCode2,
+  FolderOpen,
+  LoaderCircle,
+  Play,
+  Save,
+} from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 function fileName(path: string): string {
   return path.split(/[\\/]/).at(-1) ?? path;
@@ -33,6 +49,80 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [isOpening, setIsOpening] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [kernel, setKernel] = useState<KernelSelection | null>(null);
+  const [execution, setExecution] = useState<ActiveExecution | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    let removeExecutionListener: (() => void) | undefined;
+    let removeStatusListener: (() => void) | undefined;
+
+    void listenForExecutionEvents((event) =>
+      setExecution((current) => applyExecutionEvent(current, event))
+    )
+      .then((remove) => {
+        if (disposed) {
+          remove();
+        } else {
+          removeExecutionListener = remove;
+        }
+      })
+      .catch((cause: unknown) => {
+        if (!disposed) {
+          setError(errorMessage(cause));
+        }
+      });
+
+    void listenForKernelStatus((event) =>
+      setKernel((current) =>
+        current?.kernel_id === event.kernel_id ? event : current
+      )
+    )
+      .then((remove) => {
+        if (disposed) {
+          remove();
+        } else {
+          removeStatusListener = remove;
+        }
+      })
+      .catch((cause: unknown) => {
+        if (!disposed) {
+          setError(errorMessage(cause));
+        }
+      });
+
+    return () => {
+      disposed = true;
+      removeExecutionListener?.();
+      removeStatusListener?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!execution?.complete) {
+      return;
+    }
+
+    setSession((current) =>
+      current?.documentId === execution.documentId
+        ? applyTransaction(current, [
+            {
+              type: 'replace-outputs',
+              cell: execution.cellId,
+              outputs: execution.outputs,
+            },
+            {
+              type: 'set-execution-count',
+              cell: execution.cellId,
+              executionCount: execution.executionCount,
+            },
+          ])
+        : current
+    );
+    setExecution((current) =>
+      current?.executionId === execution.executionId ? null : current
+    );
+  }, [execution]);
 
   async function chooseNotebook() {
     if (session && session.revision !== session.savedRevision) {
@@ -65,6 +155,8 @@ export function App() {
 
     try {
       const notebook = await openNotebook(path);
+      setExecution(null);
+      setKernel(null);
       setSession(createNotebookSession(path, notebook));
     } catch (cause) {
       setError(errorMessage(cause));
@@ -94,6 +186,30 @@ export function App() {
       setError(errorMessage(cause));
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function runCell(cellId: string, code: string) {
+    if (!session || !kernel || kernel.state !== 'idle' || execution) {
+      return;
+    }
+
+    const request = beginExecution(
+      kernel.kernel_id,
+      session.documentId,
+      cellId
+    );
+
+    setExecution(request);
+    setError(null);
+
+    try {
+      await executeCell(request, code);
+    } catch (cause) {
+      setExecution((current) =>
+        current?.executionId === request.executionId ? null : current
+      );
+      setError(errorMessage(cause));
     }
   }
 
@@ -162,7 +278,14 @@ export function App() {
                   <KernelSelector
                     key={session.documentId}
                     metadata={session.notebook.metadata}
+                    onSelection={setKernel}
                   />
+                  <span
+                    className='hidden text-[10px] font-semibold tracking-[0.1em] text-zinc-500 uppercase sm:inline dark:text-zinc-400'
+                    role='status'
+                  >
+                    {kernel?.state ?? 'no kernel'}
+                  </span>
                   <Button
                     variant='ghost'
                     size='sm'
@@ -189,18 +312,64 @@ export function App() {
 
               <div className='space-y-4'>
                 {sessionCells(session).map(({ identity, cell }, index) => {
+                  const cellExecution =
+                    execution?.cellId === identity ? execution : null;
+                  const outputs =
+                    cellExecution?.outputs ??
+                    (isCodeCell(cell) ? cell.outputs : []);
+
                   return (
                     <article
                       className='group overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.025)] transition-[border-color,box-shadow] duration-150 focus-within:border-zinc-400 focus-within:shadow-[0_0_0_3px_rgba(0,0,0,0.04)] dark:border-zinc-800 dark:bg-zinc-900 dark:focus-within:border-zinc-600 dark:focus-within:shadow-[0_0_0_3px_rgba(255,255,255,0.04)]'
                       key={identity}
                     >
-                      <div className='flex items-center justify-between px-3 py-2 sm:px-4'>
+                      <div className='flex items-center justify-between gap-3 px-3 py-2 sm:px-4'>
                         <span className='text-[10px] font-semibold tracking-[0.12em] text-zinc-500 uppercase dark:text-zinc-400'>
                           {cell.cell_type}
                         </span>
-                        <span className='font-mono text-[10px] text-zinc-400 tabular-nums dark:text-zinc-500'>
-                          {String(index + 1).padStart(2, '0')}
-                        </span>
+                        <div className='flex items-center gap-2'>
+                          {isCodeCell(cell) && (
+                            <>
+                              <span className='font-mono text-[10px] text-zinc-400 tabular-nums dark:text-zinc-500'>
+                                In [
+                                {cellExecution?.running
+                                  ? '*'
+                                  : (cell.execution_count ?? ' ')}
+                                ]
+                              </span>
+                              <Button
+                                variant='ghost'
+                                size='sm'
+                                className='h-6 px-2 text-[11px]'
+                                type='button'
+                                disabled={
+                                  !!execution ||
+                                  !kernel ||
+                                  kernel.state !== 'idle'
+                                }
+                                onClick={() =>
+                                  void runCell(
+                                    identity,
+                                    sourceText(cell.source)
+                                  )
+                                }
+                              >
+                                {cellExecution ? (
+                                  <LoaderCircle
+                                    className='size-3 animate-spin'
+                                    aria-hidden='true'
+                                  />
+                                ) : (
+                                  <Play className='size-3' aria-hidden='true' />
+                                )}
+                                Run
+                              </Button>
+                            </>
+                          )}
+                          <span className='font-mono text-[10px] text-zinc-400 tabular-nums dark:text-zinc-500'>
+                            {String(index + 1).padStart(2, '0')}
+                          </span>
+                        </div>
                       </div>
                       {isMarkdownCell(cell) ? (
                         <MarkdownCellView
@@ -244,8 +413,11 @@ export function App() {
                           }
                         />
                       )}
-                      {isCodeCell(cell) && cell.outputs.length > 0 && (
-                        <SavedOutputs outputs={cell.outputs} />
+                      {isCodeCell(cell) && outputs.length > 0 && (
+                        <SavedOutputs
+                          outputs={outputs}
+                          live={cellExecution !== null}
+                        />
                       )}
                     </article>
                   );

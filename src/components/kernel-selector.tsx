@@ -1,30 +1,34 @@
+import type { KernelSelection } from '@/lib/execution';
 import { discoverKernelspecs, selectKernel } from '@/lib/kernelspec';
 import type { KernelDiscovery, Metadata } from '@/lib/types';
 import { ChevronDown, Cpu } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 
 interface KernelSelectorProps {
   metadata: Metadata;
+  onSelection: (selection: KernelSelection | null) => void;
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function KernelSelector({ metadata }: KernelSelectorProps) {
+export function KernelSelector({ metadata, onSelection }: KernelSelectorProps) {
   const [discovery, setDiscovery] = useState<KernelDiscovery | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLaunching, setIsLaunching] = useState(false);
   const [selectedId, setSelectedId] = useState('');
+  const selectionChanged = useEffectEvent(onSelection);
 
   async function activateKernel(name: string | null) {
     setIsLaunching(true);
     setError(null);
 
     try {
-      await selectKernel(name);
+      selectionChanged(await selectKernel(name));
     } catch (cause) {
       setSelectedId('');
+      selectionChanged(null);
       setError(errorMessage(cause));
     } finally {
       setIsLaunching(false);

@@ -14,6 +14,9 @@ import type {
 
 export const OUTPUT_TEXT_LIMIT = 10_000;
 
+const ANSI_SEQUENCE_PATTERN =
+  /(?:\u001b\][^\u0007]*(?:\u0007|\u001b\\)|(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~])/g;
+
 export const MIME_PREFERENCE = [
   'text/html',
   'image/svg+xml',
@@ -199,7 +202,7 @@ function renderMime(
     case 'text/markdown':
       return renderMarkdown(text);
     case 'text/plain':
-      return text;
+      return stripAnsi(text);
   }
 }
 
@@ -207,7 +210,7 @@ function renderStream(
   output: StreamOutput,
   limit: number
 ): RenderedStreamOutput {
-  const bounded = boundText(multilineText(output.text)!, limit);
+  const bounded = boundText(stripAnsi(multilineText(output.text)!), limit);
 
   return {
     renderer: 'stream',
@@ -219,7 +222,7 @@ function renderStream(
 
 function renderError(output: ErrorOutput, limit: number): RenderedErrorOutput {
   const bounded = boundTextParts(
-    [output.ename, output.evalue, output.traceback.join('\n')],
+    [output.ename, output.evalue, output.traceback.join('\n')].map(stripAnsi),
     limit
   );
 
@@ -232,6 +235,10 @@ function renderError(output: ErrorOutput, limit: number): RenderedErrorOutput {
     truncated: bounded.truncated,
     omittedCharacters: bounded.omittedCharacters,
   };
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(ANSI_SEQUENCE_PATTERN, '');
 }
 
 function renderUnsupported(

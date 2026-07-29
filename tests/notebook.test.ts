@@ -204,6 +204,27 @@ describe('notebook document operations', () => {
     expect(code(edited, 1).outputs).toBe(code(session).outputs);
   });
 
+  test('edits source without serializing unrelated outputs', () => {
+    const session = open();
+    const savedOutput = code(session).outputs[0] as NotebookOutput & {
+      toJSON?: () => never;
+    };
+
+    Object.defineProperty(savedOutput, 'toJSON', {
+      value: () => {
+        throw new Error('serialized output');
+      },
+    });
+
+    expect(() =>
+      transact(session, {
+        type: 'replace-source',
+        cell: identity(session, 0),
+        source: 'bar',
+      })
+    ).not.toThrow();
+  });
+
   test('inserts, moves, and deletes cells by identity', () => {
     const session = open();
     const first = identity(session, 0);

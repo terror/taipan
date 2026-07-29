@@ -171,7 +171,10 @@ export function applyTransaction(
     initial
   );
 
-  if (snapshotsEqual(initial, result)) {
+  if (
+    initial === result ||
+    (operations.length > 1 && snapshotsEqual(initial, result))
+  ) {
     return session;
   }
 
@@ -548,8 +551,66 @@ function snapshotsEqual(
   right: DocumentSnapshot
 ): boolean {
   return (
-    equal(left.notebook, right.notebook) &&
-    equal(left.cellIdentities, right.cellIdentities)
+    arrayEqual(left.cellIdentities, right.cellIdentities) &&
+    notebookEqual(left.notebook, right.notebook)
+  );
+}
+
+function arrayEqual<T>(left: readonly T[], right: readonly T[]): boolean {
+  return (
+    left === right ||
+    (left.length === right.length &&
+      left.every((value, index) => value === right[index]))
+  );
+}
+
+function notebookEqual(left: Notebook, right: Notebook): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  const leftRecord = left as unknown as Record<string, unknown>;
+  const rightRecord = right as unknown as Record<string, unknown>;
+  const keys = Object.keys(leftRecord);
+
+  return (
+    keys.length === Object.keys(rightRecord).length &&
+    keys.every((key) =>
+      key === 'cells'
+        ? arrayEqualBy(left.cells, right.cells, cellEqual)
+        : leftRecord[key] === rightRecord[key]
+    )
+  );
+}
+
+function arrayEqualBy<T>(
+  left: readonly T[],
+  right: readonly T[],
+  compare: (left: T, right: T) => boolean
+): boolean {
+  return (
+    left === right ||
+    (left.length === right.length &&
+      left.every((value, index) => compare(value, right[index])))
+  );
+}
+
+function cellEqual(left: NotebookCell, right: NotebookCell): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  const leftRecord = left as unknown as Record<string, unknown>;
+  const rightRecord = right as unknown as Record<string, unknown>;
+  const keys = Object.keys(leftRecord);
+
+  return (
+    keys.length === Object.keys(rightRecord).length &&
+    keys.every((key) =>
+      key === 'source'
+        ? sourceText(left.source) === sourceText(right.source)
+        : leftRecord[key] === rightRecord[key]
+    )
   );
 }
 
