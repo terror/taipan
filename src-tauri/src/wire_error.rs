@@ -9,8 +9,6 @@ pub enum WireError {
     frame: JsonFrame,
     source: serde_json::Error,
   },
-  #[error("authentication key has an invalid length")]
-  InvalidKeyLength,
   #[error("message signature is not a canonical hexadecimal digest")]
   InvalidSignatureEncoding,
   #[error("message does not contain the <IDS|MSG> delimiter")]

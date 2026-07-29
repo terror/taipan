@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-  type NotebookOperation,
   type NotebookSession,
-  applyTransaction,
+  commitCellExecution,
   createNotebookSession,
   isCodeCell,
   markNotebookSaved,
+  replaceCellSource,
   sessionCells,
   sourceText,
 } from '../src/lib/notebook';
@@ -67,13 +67,6 @@ function identity(session: NotebookSession, index: number): string {
   return session.cellIdentities[index];
 }
 
-function transact(
-  session: NotebookSession,
-  ...operations: NotebookOperation[]
-): NotebookSession {
-  return applyTransaction(session, operations);
-}
-
 function code(session: NotebookSession): CodeCell {
   const cell = session.notebook.cells[0];
 
@@ -112,11 +105,7 @@ describe('notebook session', () => {
       },
     });
 
-    const edited = transact(session, {
-      type: 'replace-source',
-      cell: identity(session, 0),
-      source: 'bar',
-    });
+    const edited = replaceCellSource(session, identity(session, 0), 'bar');
 
     expect(sourceText(edited.notebook.cells[0].source)).toBe('bar');
     expect(code(edited).outputs).toBe(code(session).outputs);
@@ -127,23 +116,15 @@ describe('notebook session', () => {
     expect(edited.documentId).toBe(session.documentId);
     expect(edited.cellIdentities).toBe(session.cellIdentities);
     expect(edited.revision).toBe(1);
-    expect(edited.nextRevision).toBe(2);
   });
 
   test('commits execution outputs and count in one revision', () => {
     const session = open();
-    const edited = transact(
+    const edited = commitCellExecution(
       session,
-      {
-        type: 'replace-outputs',
-        cell: identity(session, 0),
-        outputs: [output('bar')],
-      },
-      {
-        type: 'set-execution-count',
-        cell: identity(session, 0),
-        executionCount: 42,
-      }
+      identity(session, 0),
+      [output('bar')],
+      42
     );
 
     expect(code(edited).outputs).toEqual([output('bar')]);
@@ -151,49 +132,36 @@ describe('notebook session', () => {
     expect(edited.revision).toBe(1);
   });
 
-  test('ignores no-ops and stale identities', () => {
+  test('ignores semantic source no-ops and stale identities', () => {
     const session = open();
 
-    function check(...operations: NotebookOperation[]) {
-      expect(transact(session, ...operations)).toBe(session);
-    }
+    expect(replaceCellSource(session, identity(session, 0), 'foo\nbar')).toBe(
+      session
+    );
+    expect(replaceCellSource(session, 'stale', 'bar')).toBe(session);
+  });
 
-    check();
-    check({
-      type: 'replace-source',
-      cell: identity(session, 0),
-      source: 'foo\nbar',
-    });
-    check({
-      type: 'replace-outputs',
-      cell: identity(session, 0),
-      outputs: [output('foo')],
-    });
-    check({
-      type: 'set-execution-count',
-      cell: identity(session, 0),
-      executionCount: null,
-    });
-    check({ type: 'replace-source', cell: 'stale', source: 'bar' });
+  test('ignores unchanged execution and stale identities', () => {
+    const session = open();
+
+    expect(
+      commitCellExecution(session, identity(session, 0), [output('foo')], null)
+    ).toBe(session);
+    expect(commitCellExecution(session, 'stale', [output('bar')], 42)).toBe(
+      session
+    );
   });
 
   test('tracks saved revisions across newer edits', () => {
     const session = open();
-    const edited = transact(session, {
-      type: 'replace-source',
-      cell: identity(session, 0),
-      source: 'bar',
-    });
-    const saved = markNotebookSaved(edited, edited.revision);
-    const newer = transact(saved, {
-      type: 'replace-source',
-      cell: identity(session, 0),
-      source: 'baz',
-    });
+    const edited = replaceCellSource(session, identity(session, 0), 'bar');
+    const newer = replaceCellSource(edited, identity(session, 0), 'baz');
+    const saved = markNotebookSaved(newer, edited.revision);
 
-    expect(saved.revision).toBe(saved.savedRevision);
-    expect(newer.revision).not.toBe(newer.savedRevision);
-    expect(markNotebookSaved(newer, newer.nextRevision)).toBe(newer);
+    expect(saved.savedRevision).toBe(edited.revision);
+    expect(saved.revision).toBe(newer.revision);
+    expect(saved.revision).not.toBe(saved.savedRevision);
+    expect(markNotebookSaved(saved, saved.revision + 1)).toBe(saved);
   });
 
   test('joins multiline source and tolerates future cell types', () => {

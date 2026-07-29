@@ -120,7 +120,7 @@ impl ChannelDriver {
 
     validate_frames(&frames, &self.config)?;
 
-    let message = frames_to_message(frames)?;
+    let message = frames_to_message(frames);
 
     self
       .commands
@@ -338,10 +338,12 @@ async fn emit_message(
   emit(events, cancelled, event).await
 }
 
-fn frames_to_message(frames: Vec<Frame>) -> Result<ZmqMessage, TransportError> {
+fn frames_to_message(frames: Vec<Frame>) -> ZmqMessage {
   let mut frames = frames.into_iter();
 
-  let first = frames.next().ok_or(TransportError::EmptyMessage)?;
+  let first = frames
+    .next()
+    .expect("wire protocol encoding emits at least one frame");
 
   let mut message = ZmqMessage::from(first);
 
@@ -349,7 +351,7 @@ fn frames_to_message(frames: Vec<Frame>) -> Result<ZmqMessage, TransportError> {
     message.push_back(frame.into());
   }
 
-  Ok(message)
+  message
 }
 
 fn message_to_frames(
@@ -774,7 +776,7 @@ mod tests {
 
       request.identities.push(b"bar".to_vec());
       peer
-        .send(frames_to_message(protocol.encode(&request).unwrap()).unwrap())
+        .send(frames_to_message(protocol.encode(&request).unwrap()))
         .await
         .unwrap();
 
@@ -893,7 +895,7 @@ mod tests {
     let mut message = envelope();
     message.identities.push(b"bar".to_vec());
     peer
-      .send(frames_to_message(protocol.encode(&message).unwrap()).unwrap())
+      .send(frames_to_message(protocol.encode(&message).unwrap()))
       .await
       .unwrap();
 
@@ -926,10 +928,7 @@ mod tests {
     let request = peer.recv().await.unwrap();
     let identity = request.get(0).unwrap().to_vec();
     let malformed = vec![identity.clone(), b"foo".to_vec()];
-    peer
-      .send(frames_to_message(malformed).unwrap())
-      .await
-      .unwrap();
+    peer.send(frames_to_message(malformed)).await.unwrap();
 
     assert!(matches!(
       event(&mut events).await,
@@ -944,7 +943,7 @@ mod tests {
     let mut frames = protocol.encode(&message).unwrap();
     let delimiter = frames.iter().position(|frame| frame == DELIMITER).unwrap();
     frames[delimiter + 1][0] ^= 1;
-    peer.send(frames_to_message(frames).unwrap()).await.unwrap();
+    peer.send(frames_to_message(frames)).await.unwrap();
 
     assert!(matches!(
       event(&mut events).await,
@@ -1002,7 +1001,7 @@ mod tests {
     let request = peer.recv().await.unwrap();
     let mut frames = vec![request.get(0).unwrap().to_vec()];
     frames.extend([const { Vec::new() }; 9]);
-    peer.send(frames_to_message(frames).unwrap()).await.unwrap();
+    peer.send(frames_to_message(frames)).await.unwrap();
 
     assert!(matches!(
       event(&mut events).await,
