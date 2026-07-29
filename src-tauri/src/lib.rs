@@ -4,6 +4,7 @@ use {
     TransportEvent,
   },
   chrono::{SecondsFormat, Utc},
+  environment::Environment,
   error::Error,
   futures::{StreamExt, channel::mpsc as monitor},
   hmac::{Hmac, KeyInit, Mac},
@@ -11,9 +12,11 @@ use {
     CellId, DocumentId, ExecutionId, ExecutionRequest, KernelId,
     KernelLaunchSpec, KernelState, LocalKernelManager,
   },
+  kernel_source::KernelSource,
   kernelspec::{KernelDiscovery, KernelSpecManager},
   notebook::{Metadata, Notebook},
   platform::Platform,
+  search_root::SearchRoot,
   serde::{Deserialize, Serialize, Serializer, de},
   serde_json::{Map, Value},
   sha1::Sha1,
@@ -79,6 +82,7 @@ use windows_sys::Win32::{
 #[cfg(test)]
 use {
   std::process::Command as StdCommand,
+  wire::DELIMITER,
   zeromq::{RepSocket, RouterSocket, XPubSocket},
 };
 
@@ -86,9 +90,11 @@ mod channel;
 mod environment;
 mod error;
 mod kernel;
+mod kernel_source;
 mod kernelspec;
 mod notebook;
 mod platform;
+mod search_root;
 mod wire;
 
 type Result<T = (), E = Error> = std::result::Result<T, E>;

@@ -30,25 +30,6 @@ pub struct KernelSummary {
   pub source: String,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum KernelSource {
-  Environment,
-  JupyterPath,
-  System,
-  User,
-}
-
-impl KernelSource {
-  fn label(self) -> &'static str {
-    match self {
-      Self::Environment => "Environment",
-      Self::JupyterPath => "JUPYTER_PATH",
-      Self::System => "System",
-      Self::User => "User",
-    }
-  }
-}
-
 #[derive(Debug, Deserialize)]
 struct KernelJson {
   argv: Vec<String>,
@@ -71,22 +52,18 @@ struct KernelSpec {
   source: KernelSource,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct SearchRoot {
-  path: PathBuf,
-  source: KernelSource,
-}
-
 pub struct KernelSpecManager;
 
 impl KernelSpecManager {
   pub fn discover(metadata: &Metadata) -> KernelDiscovery {
-    Self::discover_in(&search_roots(&Environment::current()), metadata)
+    Self::discover_in(&Environment::current().search_roots(), metadata)
   }
 
   fn discover_in(roots: &[SearchRoot], metadata: &Metadata) -> KernelDiscovery {
     let (specs, diagnostics) = load_specs(roots);
+
     let recommended = recommendation(&specs, metadata);
+
     let kernels = specs
       .iter()
       .enumerate()
@@ -98,6 +75,7 @@ impl KernelSpecManager {
         source: spec.source.label().into(),
       })
       .collect::<Vec<_>>();
+
     let recommended_id = recommended.map(|index| kernels[index].id.clone());
 
     KernelDiscovery {
@@ -110,7 +88,8 @@ impl KernelSpecManager {
   pub fn launch_spec(
     name: &str,
   ) -> std::result::Result<KernelLaunchSpec, String> {
-    let (specs, _) = load_specs(&search_roots(&Environment::current()));
+    let (specs, _) = load_specs(&Environment::current().search_roots());
+
     let spec = specs
       .into_iter()
       .find(|spec| spec.name.eq_ignore_ascii_case(name))
@@ -304,100 +283,6 @@ fn recommendation(specs: &[KernelSpec], metadata: &Metadata) -> Option<usize> {
   })
 }
 
-fn search_roots(environment: &Environment) -> Vec<SearchRoot> {
-  let mut roots = environment
-    .paths("JUPYTER_PATH")
-    .into_iter()
-    .map(|path| SearchRoot {
-      path: path.join("kernels"),
-      source: KernelSource::JupyterPath,
-    })
-    .collect::<Vec<_>>();
-
-  let user = environment
-    .path("JUPYTER_DATA_DIR")
-    .or_else(|| user_data_dir(environment))
-    .map(|path| SearchRoot {
-      path: path.join("kernels"),
-      source: KernelSource::User,
-    });
-
-  let mut environments = ["VIRTUAL_ENV", "CONDA_PREFIX"]
-    .into_iter()
-    .filter_map(|name| environment.path(name))
-    .map(|path| SearchRoot {
-      path: path.join("share").join("jupyter").join("kernels"),
-      source: KernelSource::Environment,
-    })
-    .collect::<Vec<_>>();
-  environments.dedup_by(|left, right| left.path == right.path);
-
-  if environment.truthy("JUPYTER_PREFER_ENV_PATH") {
-    roots.append(&mut environments);
-    roots.extend(user);
-  } else {
-    roots.extend(user);
-    roots.append(&mut environments);
-  }
-
-  roots.extend(system_data_dirs(environment).into_iter().map(|path| {
-    SearchRoot {
-      path: path.join("kernels"),
-      source: KernelSource::System,
-    }
-  }));
-
-  let mut paths = BTreeSet::new();
-  roots.retain(|root| paths.insert(root.path.clone()));
-  roots
-}
-
-fn system_data_dirs(environment: &Environment) -> Vec<PathBuf> {
-  match environment.platform {
-    Platform::Linux | Platform::Macos => vec![
-      PathBuf::from("/usr/local/share/jupyter"),
-      PathBuf::from("/usr/share/jupyter"),
-    ],
-    Platform::Windows => environment
-      .path("PROGRAMDATA")
-      .map(|path| vec![path.join("jupyter")])
-      .unwrap_or_default(),
-  }
-}
-
-fn user_data_dir(environment: &Environment) -> Option<PathBuf> {
-  match environment.platform {
-    Platform::Linux => environment.path("XDG_DATA_HOME").or_else(|| {
-      environment
-        .home
-        .as_ref()
-        .map(|home| home.join(".local").join("share"))
-    }),
-    Platform::Macos if environment.truthy("JUPYTER_PLATFORM_DIRS") => {
-      environment
-        .home
-        .as_ref()
-        .map(|home| home.join("Library").join("Application Support"))
-    }
-    Platform::Macos => {
-      environment.home.as_ref().map(|home| home.join("Library"))
-    }
-    Platform::Windows => environment.path("APPDATA").or_else(|| {
-      environment
-        .home
-        .as_ref()
-        .map(|home| home.join(".jupyter").join("data"))
-    }),
-  }
-  .map(|path| {
-    path.join(if environment.platform == Platform::Macos {
-      "Jupyter"
-    } else {
-      "jupyter"
-    })
-  })
-}
-
 fn valid_name(name: &str) -> bool {
   !name.is_empty()
     && name.bytes().all(|byte| {
@@ -456,7 +341,7 @@ mod tests {
     ]);
 
     assert_eq!(
-      search_roots(&environment),
+      environment.search_roots(),
       [
         root(Path::new("/foo/kernels"), KernelSource::JupyterPath),
         root(Path::new("/bar/kernels"), KernelSource::JupyterPath),
@@ -480,7 +365,7 @@ mod tests {
       OsString::from("JUPYTER_PREFER_ENV_PATH"),
       OsString::from("1"),
     );
-    let roots = search_roots(&environment);
+    let roots = environment.search_roots();
     assert_eq!(roots[2].source, KernelSource::Environment);
     assert_eq!(roots[3].source, KernelSource::User);
   }
@@ -489,7 +374,7 @@ mod tests {
   fn platform_user_and_system_locations() {
     #[track_caller]
     fn case(environment: &Environment, user: &str, system: &[&str]) {
-      let roots = search_roots(environment);
+      let roots = environment.search_roots();
       assert_eq!(roots[0].path, Path::new(user));
       assert_eq!(
         roots[1..]
