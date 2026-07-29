@@ -22,8 +22,6 @@ pub struct KernelDiscovery {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct KernelSummary {
   pub display_name: String,
-  pub id: String,
-  pub language: String,
   pub name: String,
   pub source: String,
 }
@@ -59,11 +57,8 @@ impl KernelSpecManager {
 
     let kernels = specs
       .iter()
-      .enumerate()
-      .map(|(index, spec)| KernelSummary {
+      .map(|spec| KernelSummary {
         display_name: spec.display_name.clone(),
-        id: format!("kernel-{index}"),
-        language: spec.language.clone(),
         name: spec.name.clone(),
         source: spec.source.label().into(),
       })
@@ -373,14 +368,18 @@ mod tests {
     ]);
 
     assert_eq!(
-      discovery
-        .kernels
-        .iter()
-        .map(|kernel| (&kernel.name, &kernel.display_name, &kernel.source))
-        .collect::<Vec<_>>(),
+      discovery.kernels,
       [
-        (&"python3".into(), &"High".into(), &"User".into()),
-        (&"julia".into(), &"Julia".into(), &"System".into()),
+        KernelSummary {
+          display_name: "High".into(),
+          name: "python3".into(),
+          source: "User".into(),
+        },
+        KernelSummary {
+          display_name: "Julia".into(),
+          name: "julia".into(),
+          source: "System".into(),
+        },
       ]
     );
   }
