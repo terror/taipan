@@ -816,6 +816,7 @@ mod tests {
     let shell_endpoint = shell_peer.bind("tcp://127.0.0.1:0").await.unwrap();
     let mut stdin_peer = RouterSocket::new();
     let stdin_endpoint = stdin_peer.bind("tcp://127.0.0.1:0").await.unwrap();
+    let mut stdin_monitor = stdin_peer.monitor();
     let config = DriverConfig::default();
     let protocol = protocol();
     let (shell, _shell_events) = ChannelDriver::connect(
@@ -832,6 +833,18 @@ mod tests {
       protocol.clone(),
       config.clone(),
     )
+    .await
+    .unwrap();
+
+    time::timeout(Duration::from_secs(2), async {
+      loop {
+        match stdin_monitor.next().await {
+          Some(SocketEvent::Accepted(_, _)) => break,
+          Some(_) => {}
+          None => panic!("stdin monitor closed before accepting the client"),
+        }
+      }
+    })
     .await
     .unwrap();
 
