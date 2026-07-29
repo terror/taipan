@@ -16,8 +16,6 @@ pub struct KernelDiagnostic {
 pub struct KernelDiscovery {
   pub diagnostics: Vec<KernelDiagnostic>,
   pub kernels: Vec<KernelSummary>,
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub recommended_id: Option<String>,
 }
 
 #[typeshare]
@@ -55,14 +53,12 @@ struct KernelSpec {
 pub struct KernelSpecManager;
 
 impl KernelSpecManager {
-  pub fn discover(metadata: &Metadata) -> KernelDiscovery {
-    Self::discover_in(&Environment::current().search_roots(), metadata)
+  pub fn discover() -> KernelDiscovery {
+    Self::discover_in(&Environment::current().search_roots())
   }
 
-  fn discover_in(roots: &[SearchRoot], metadata: &Metadata) -> KernelDiscovery {
+  fn discover_in(roots: &[SearchRoot]) -> KernelDiscovery {
     let (specs, diagnostics) = load_specs(roots);
-
-    let recommended = recommendation(&specs, metadata);
 
     let kernels = specs
       .iter()
@@ -76,12 +72,9 @@ impl KernelSpecManager {
       })
       .collect::<Vec<_>>();
 
-    let recommended_id = recommended.map(|index| kernels[index].id.clone());
-
     KernelDiscovery {
       diagnostics,
       kernels,
-      recommended_id,
     }
   }
 
@@ -247,42 +240,6 @@ fn load_spec(
   })
 }
 
-fn metadata_string<'a>(
-  metadata: &'a Metadata,
-  object: &str,
-  field: &str,
-) -> Option<&'a str> {
-  metadata
-    .get(object)
-    .and_then(Value::as_object)
-    .and_then(|value| value.get(field))
-    .and_then(Value::as_str)
-    .map(str::trim)
-    .filter(|value| !value.is_empty())
-}
-
-fn recommendation(specs: &[KernelSpec], metadata: &Metadata) -> Option<usize> {
-  if let Some(name) = metadata_string(metadata, "kernelspec", "name")
-    && let Some(index) = specs
-      .iter()
-      .position(|spec| spec.name.eq_ignore_ascii_case(name))
-  {
-    return Some(index);
-  }
-
-  [
-    metadata_string(metadata, "kernelspec", "language"),
-    metadata_string(metadata, "language_info", "name"),
-  ]
-  .into_iter()
-  .flatten()
-  .find_map(|language| {
-    specs
-      .iter()
-      .position(|spec| spec.language.to_lowercase() == language.to_lowercase())
-  })
-}
-
 fn valid_name(name: &str) -> bool {
   !name.is_empty()
     && name.bytes().all(|byte| {
@@ -422,13 +379,10 @@ mod tests {
     write_spec(low.path(), "python3", &valid_spec("Low", "python"));
     write_spec(low.path(), "julia", &valid_spec("Julia", "julia"));
 
-    let discovery = KernelSpecManager::discover_in(
-      &[
-        root(high.path(), KernelSource::User),
-        root(low.path(), KernelSource::System),
-      ],
-      &Metadata::new(),
-    );
+    let discovery = KernelSpecManager::discover_in(&[
+      root(high.path(), KernelSource::User),
+      root(low.path(), KernelSource::System),
+    ]);
 
     assert_eq!(
       discovery
@@ -460,13 +414,10 @@ mod tests {
     write_spec(low.path(), "PYTHON3", &valid_spec("Python", "python"));
     write_spec(low.path(), "julia", &valid_spec("Julia", "julia"));
 
-    let discovery = KernelSpecManager::discover_in(
-      &[
-        root(high.path(), KernelSource::User),
-        root(low.path(), KernelSource::System),
-      ],
-      &Metadata::new(),
-    );
+    let discovery = KernelSpecManager::discover_in(&[
+      root(high.path(), KernelSource::User),
+      root(low.path(), KernelSource::System),
+    ]);
 
     assert_eq!(
       discovery
@@ -491,10 +442,10 @@ mod tests {
     fn case(json: &Value, expected: &str) {
       let directory = tempfile::tempdir().unwrap();
       write_spec(directory.path(), "foo", json);
-      let discovery = KernelSpecManager::discover_in(
-        &[root(directory.path(), KernelSource::User)],
-        &Metadata::new(),
-      );
+      let discovery = KernelSpecManager::discover_in(&[root(
+        directory.path(),
+        KernelSource::User,
+      )]);
       assert!(discovery.kernels.is_empty());
       assert!(discovery.diagnostics[0].message.contains(expected));
     }
@@ -539,64 +490,18 @@ mod tests {
   }
 
   #[test]
-  fn recommendation_prefers_name_then_language_metadata() {
-    let directory = tempfile::tempdir().unwrap();
-    write_spec(directory.path(), "Julia", &valid_spec("Julia", "julia"));
-    write_spec(directory.path(), "python3", &valid_spec("Python", "python"));
-    let roots = [root(directory.path(), KernelSource::User)];
-
-    let mut metadata = Metadata::new();
-    metadata.insert(
-      "kernelspec".into(),
-      serde_json::json!({"name": "PYTHON3", "language": "julia"}),
-    );
-    let discovery = KernelSpecManager::discover_in(&roots, &metadata);
-    assert_eq!(
-      discovery.recommended_id,
-      discovery
-        .kernels
-        .iter()
-        .find(|kernel| kernel.name == "python3")
-        .map(|kernel| kernel.id.clone())
-    );
-
-    metadata.insert(
-      "kernelspec".into(),
-      serde_json::json!({"name": "missing", "language": "JULIA"}),
-    );
-    let discovery = KernelSpecManager::discover_in(&roots, &metadata);
-    assert_eq!(
-      discovery.recommended_id,
-      discovery
-        .kernels
-        .iter()
-        .find(|kernel| kernel.name == "julia")
-        .map(|kernel| kernel.id.clone())
-    );
-
-    metadata.insert("kernelspec".into(), serde_json::json!({}));
-    metadata.insert(
-      "language_info".into(),
-      serde_json::json!({"name": "python"}),
-    );
-    let discovery = KernelSpecManager::discover_in(&roots, &metadata);
-    assert!(discovery.recommended_id.is_some());
-  }
-
-  #[test]
   fn no_kernels_is_a_successful_empty_discovery() {
     let directory = tempfile::tempdir().unwrap();
-    let discovery = KernelSpecManager::discover_in(
-      &[root(directory.path(), KernelSource::User)],
-      &Metadata::new(),
-    );
+    let discovery = KernelSpecManager::discover_in(&[root(
+      directory.path(),
+      KernelSource::User,
+    )]);
 
     assert_eq!(
       discovery,
       KernelDiscovery {
         diagnostics: Vec::new(),
         kernels: Vec::new(),
-        recommended_id: None,
       }
     );
   }

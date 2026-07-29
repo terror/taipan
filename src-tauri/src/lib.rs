@@ -6,7 +6,7 @@ use {
   hmac::{Hmac, KeyInit, Mac},
   kernel_source::KernelSource,
   kernelspec::{KernelDiscovery, KernelSpecManager},
-  notebook::{Metadata, Notebook},
+  notebook::Notebook,
   search_root::SearchRoot,
   serde::{Deserialize, Serialize, Serializer, de},
   serde_json::{Map, Value},
@@ -231,14 +231,10 @@ async fn execute_cell(
 }
 
 #[tauri::command]
-async fn discover_kernelspecs(
-  metadata: notebook::Metadata,
-) -> Result<KernelDiscovery> {
-  tauri::async_runtime::spawn_blocking(move || {
-    kernelspec::KernelSpecManager::discover(&metadata)
-  })
-  .await
-  .map_err(Error::Task)
+async fn discover_kernelspecs() -> Result<KernelDiscovery> {
+  tauri::async_runtime::spawn_blocking(kernelspec::KernelSpecManager::discover)
+    .await
+    .map_err(Error::Task)
 }
 
 /// # Panics
