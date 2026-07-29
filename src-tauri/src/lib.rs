@@ -51,10 +51,9 @@ pub use {
     TransportEvent,
   },
   kernel::{
-    CellId, ConnectionData, DocumentId, ExecutionEvent, ExecutionId,
-    ExecutionMessage, ExecutionRequest, ExecutionState, KernelChannels,
-    KernelId, KernelInfo, KernelLaunchSpec, KernelState, LaunchConfig,
-    LocalKernel, LocalKernelManager, ManagerConfig,
+    CellId, DocumentId, ExecutionEvent, ExecutionId, ExecutionMessage,
+    ExecutionRequest, ExecutionState, KernelId, KernelLaunchSpec, KernelState,
+    LaunchConfig, LocalKernelManager, ManagerConfig,
   },
   launch_error::LaunchError,
   manager_error::ManagerError,

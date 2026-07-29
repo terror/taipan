@@ -3,7 +3,7 @@ use {
   std::{collections::BTreeMap, env},
   taipan_lib::{
     ExecutionEvent, ExecutionMessage, ExecutionRequest, ExecutionState,
-    KernelId, KernelLaunchSpec, LocalKernel, LocalKernelManager,
+    KernelId, KernelLaunchSpec, LocalKernelManager,
   },
   tokio::{sync::mpsc, time},
 };
@@ -69,20 +69,6 @@ async fn execute(
   })
   .await
   .unwrap()
-}
-
-#[tokio::test]
-async fn ipython_kernel_reaches_readiness() {
-  let Ok(python) = env::var("TAIPAN_IPYTHON_PYTHON") else {
-    return;
-  };
-
-  let kernel = LocalKernel::launch(launch_spec(python)).await.unwrap();
-
-  assert_eq!(kernel.info().implementation, "ipython");
-  assert_eq!(kernel.info().language_info["name"], "python");
-
-  kernel.shutdown().await.unwrap();
 }
 
 #[tokio::test]
