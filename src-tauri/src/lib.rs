@@ -15,6 +15,7 @@ use {
   typeshare::{U53, typeshare},
 };
 
+pub mod channel;
 mod error;
 mod kernelspec;
 mod notebook;
