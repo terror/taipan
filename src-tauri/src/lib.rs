@@ -1,21 +1,31 @@
-use {
+pub use {
   channel::{
-    ChannelDriver, DriverConfig, HeartbeatDriver, TransportError,
-    TransportEvent,
+    ChannelDriver, ChannelMessage, DriverConfig, HeartbeatDriver,
+    TransportError, TransportEvent,
   },
+  kernel::{
+    CellId, ConnectionData, DocumentId, ExecutionEvent, ExecutionId,
+    ExecutionMessage, ExecutionRequest, ExecutionState, KernelChannels,
+    KernelId, KernelInfo, KernelLaunchSpec, KernelState, LaunchConfig,
+    LaunchError, LocalKernel, LocalKernelManager, ManagerConfig, ManagerError,
+    StartupOutput,
+  },
+  platform::Platform,
+  wire::{
+    Channel, DELIMITER, Envelope, Frame, Header, JsonFrame, JsonObject,
+    MessageType, ParentHeader, SignatureScheme, WireError, WireProtocol,
+  },
+};
+
+use {
   chrono::{SecondsFormat, Utc},
   environment::Environment,
   error::Error,
   futures::{StreamExt, channel::mpsc as monitor},
   hmac::{Hmac, KeyInit, Mac},
-  kernel::{
-    CellId, DocumentId, ExecutionId, ExecutionRequest, KernelId,
-    KernelLaunchSpec, KernelState, LocalKernelManager,
-  },
   kernel_source::KernelSource,
   kernelspec::{KernelDiscovery, KernelSpecManager},
   notebook::{Metadata, Notebook},
-  platform::Platform,
   search_root::SearchRoot,
   serde::{Deserialize, Serialize, Serializer, de},
   serde_json::{Map, Value},
@@ -50,10 +60,6 @@ use {
   },
   typeshare::{U53, typeshare},
   uuid::Uuid,
-  wire::{
-    Channel, Envelope, Frame, Header, JsonObject, MessageType, ParentHeader,
-    WireError, WireProtocol,
-  },
   zeromq::{
     DealerRecvHalf, DealerSendHalf, DealerSocket, ReqSocket, Socket,
     SocketEvent, SocketOptions, SocketRecv, SocketSend, SubSocket, ZmqError,
@@ -82,7 +88,6 @@ use windows_sys::Win32::{
 #[cfg(test)]
 use {
   std::process::Command as StdCommand,
-  wire::DELIMITER,
   zeromq::{RepSocket, RouterSocket, XPubSocket},
 };
 

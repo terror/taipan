@@ -1,5 +1,5 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Platform {
+pub enum Platform {
   Linux,
   Macos,
   Windows,
