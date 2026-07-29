@@ -84,7 +84,6 @@ impl KernelLaunchSpec {
 #[derive(Clone, Debug)]
 pub struct LaunchConfig {
   pub heartbeat_timeout: Duration,
-  pub max_startup_output_bytes: usize,
   pub runtime_dir: Option<PathBuf>,
   pub startup_timeout: Duration,
 }
@@ -93,7 +92,6 @@ impl Default for LaunchConfig {
   fn default() -> Self {
     Self {
       heartbeat_timeout: Duration::from_secs(3),
-      max_startup_output_bytes: 16 * 1024,
       runtime_dir: None,
       startup_timeout: Duration::from_secs(15),
     }
@@ -116,11 +114,8 @@ pub enum LaunchError {
   Protocol(#[source] WireError),
   #[error("failed to spawn kernel process")]
   Spawn(#[source] io::Error),
-  #[error("kernel startup failed: {reason}{output}")]
-  Startup {
-    output: StartupOutput,
-    reason: String,
-  },
+  #[error("kernel startup failed: {0}")]
+  Startup(String),
   #[error("failed to stop kernel process")]
   Stop(#[source] io::Error),
   #[error("failed to connect kernel channel")]
@@ -615,12 +610,6 @@ impl LocalKernel {
     if spec.language.to_ascii_lowercase().starts_with("python") {
       environment.remove(OsStr::new("PYTHONEXECUTABLE"));
     }
-    let redactor =
-      Redactor::new(&spec, &inherited, &connection, connection_file.path());
-    let capture = Arc::new(Mutex::new(StartupCapture::new(
-      config.max_startup_output_bytes,
-      redactor.maximum_value_length(),
-    )));
     let protocol = Arc::new(
       WireProtocol::new(
         connection.key.as_bytes(),
@@ -636,13 +625,8 @@ impl LocalKernel {
     };
     drop(reservations);
 
-    let mut process = KernelProcess::spawn(
-      &argv,
-      &environment,
-      connection_file,
-      capture,
-      redactor,
-    )?;
+    let mut process =
+      KernelProcess::spawn(&argv, &environment, connection_file)?;
     let deadline = Instant::now() + config.startup_timeout;
     let channels = time::timeout_at(deadline, async {
       loop {
@@ -666,22 +650,17 @@ impl LocalKernel {
       Ok(Ok(channels)) => channels,
       Ok(Err(error)) => {
         let cleanup = process.stop().await.err();
-        let output = process.startup_output();
-        return Err(LaunchError::Startup {
-          output,
-          reason: startup_reason(error.to_string(), cleanup),
-        });
+        return Err(LaunchError::Startup(startup_reason(
+          error.to_string(),
+          cleanup,
+        )));
       }
       Err(_) => {
         let cleanup = process.stop().await.err();
-        let output = process.startup_output();
-        return Err(LaunchError::Startup {
-          output,
-          reason: startup_reason(
-            format!("timed out after {:?}", config.startup_timeout),
-            cleanup,
-          ),
-        });
+        return Err(LaunchError::Startup(startup_reason(
+          format!("timed out after {:?}", config.startup_timeout),
+          cleanup,
+        )));
       }
     };
     let readiness = time::timeout_at(
@@ -694,23 +673,15 @@ impl LocalKernel {
       Ok(Err(reason)) => {
         channels.shutdown().await;
         let cleanup = process.stop().await.err();
-        let output = process.startup_output();
-        return Err(LaunchError::Startup {
-          output,
-          reason: startup_reason(reason, cleanup),
-        });
+        return Err(LaunchError::Startup(startup_reason(reason, cleanup)));
       }
       Err(_) => {
         channels.shutdown().await;
         let cleanup = process.stop().await.err();
-        let output = process.startup_output();
-        return Err(LaunchError::Startup {
-          output,
-          reason: startup_reason(
-            format!("timed out after {:?}", config.startup_timeout),
-            cleanup,
-          ),
-        });
+        return Err(LaunchError::Startup(startup_reason(
+          format!("timed out after {:?}", config.startup_timeout),
+          cleanup,
+        )));
       }
     };
 
@@ -748,7 +719,7 @@ async fn finish_kernel(kernel: &mut LocalKernel) -> Result<(), LaunchError> {
   }
 
   if let Some(mut process) = kernel.process.take() {
-    process.finish().await.map_err(LaunchError::Stop)?;
+    process.finish().map_err(LaunchError::Stop)?;
   }
 
   Ok(())
@@ -1305,61 +1276,17 @@ async fn supervise_kernel(
   }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct StartupOutput {
-  stderr: String,
-  stdout: String,
-  truncated: bool,
-}
-
-impl fmt::Display for StartupOutput {
-  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-    if self.stdout.is_empty() && self.stderr.is_empty() {
-      return Ok(());
-    }
-
-    formatter.write_str("\nstartup output:")?;
-
-    if !self.stdout.is_empty() {
-      write!(formatter, "\nstdout: {}", self.stdout.trim_end())?;
-    }
-
-    if !self.stderr.is_empty() {
-      write!(formatter, "\nstderr: {}", self.stderr.trim_end())?;
-    }
-
-    if self.truncated {
-      formatter.write_str("\n<output truncated>")?;
-    }
-
-    Ok(())
-  }
-}
-
 struct KernelProcess {
-  capture: Arc<Mutex<StartupCapture>>,
   child: Child,
   connection_file: Option<NamedTempFile>,
   #[cfg(unix)]
   process_group: Option<u32>,
-  readers: Vec<JoinHandle<io::Result<()>>>,
-  redactor: Redactor,
   #[cfg(windows)]
   windows_job: WindowsJob,
 }
 
 impl KernelProcess {
-  async fn finish(&mut self) -> io::Result<()> {
-    for mut reader in self.readers.drain(..) {
-      if time::timeout(Duration::from_millis(100), &mut reader)
-        .await
-        .is_err()
-      {
-        reader.abort();
-        let _ = reader.await;
-      }
-    }
-
+  fn finish(&mut self) -> io::Result<()> {
     if let Some(connection_file) = self.connection_file.take() {
       connection_file.close()?;
     }
@@ -1371,8 +1298,6 @@ impl KernelProcess {
     argv: &[String],
     environment: &BTreeMap<OsString, OsString>,
     connection_file: NamedTempFile,
-    capture: Arc<Mutex<StartupCapture>>,
-    redactor: Redactor,
   ) -> Result<Self, LaunchError> {
     let mut command = Command::new(&argv[0]);
     command
@@ -1381,36 +1306,22 @@ impl KernelProcess {
       .envs(environment)
       .kill_on_drop(true)
       .stdin(Stdio::null())
-      .stdout(Stdio::piped())
-      .stderr(Stdio::piped());
+      .stdout(Stdio::null())
+      .stderr(Stdio::null());
 
     #[cfg(unix)]
     command.process_group(0);
 
-    let mut child = command.spawn().map_err(LaunchError::Spawn)?;
+    let child = command.spawn().map_err(LaunchError::Spawn)?;
     #[cfg(unix)]
     let process_group = child.id();
     #[cfg(windows)]
     let windows_job = WindowsJob::new(&child).map_err(LaunchError::Spawn)?;
-    let stdout = child.stdout.take().ok_or_else(|| {
-      LaunchError::Spawn(io::Error::other("stdout pipe unavailable"))
-    })?;
-    let stderr = child.stderr.take().ok_or_else(|| {
-      LaunchError::Spawn(io::Error::other("stderr pipe unavailable"))
-    })?;
-    let readers = vec![
-      tokio::spawn(drain_output(stdout, capture.clone(), OutputStream::Stdout)),
-      tokio::spawn(drain_output(stderr, capture.clone(), OutputStream::Stderr)),
-    ];
-
     Ok(Self {
-      capture,
       child,
       connection_file: Some(connection_file),
       #[cfg(unix)]
       process_group,
-      readers,
-      redactor,
       #[cfg(windows)]
       windows_job,
     })
@@ -1464,23 +1375,12 @@ impl KernelProcess {
     }
   }
 
-  fn startup_output(&self) -> StartupOutput {
-    self.capture.lock().map_or_else(
-      |_| StartupOutput {
-        stderr: String::new(),
-        stdout: String::new(),
-        truncated: true,
-      },
-      |capture| capture.output(&self.redactor),
-    )
-  }
-
   async fn stop(&mut self) -> io::Result<()> {
     self.start_kill()?;
     let wait = time::timeout(Duration::from_secs(3), self.child.wait()).await;
 
     match wait {
-      Ok(Ok(_)) => self.finish().await,
+      Ok(Ok(_)) => self.finish(),
       Ok(Err(error)) => Err(error),
       Err(_) => Err(io::Error::new(
         io::ErrorKind::TimedOut,
@@ -1517,143 +1417,6 @@ impl KernelProcess {
 impl Drop for KernelProcess {
   fn drop(&mut self) {
     let _ = self.start_kill();
-
-    for reader in &self.readers {
-      reader.abort();
-    }
-  }
-}
-
-#[derive(Clone, Copy)]
-enum OutputStream {
-  Stderr,
-  Stdout,
-}
-
-struct Redactor {
-  values: Vec<String>,
-}
-
-impl Redactor {
-  fn maximum_value_length(&self) -> usize {
-    self.values.first().map_or(0, String::len)
-  }
-
-  fn new(
-    spec: &KernelLaunchSpec,
-    inherited: &BTreeMap<OsString, OsString>,
-    connection: &ConnectionData,
-    connection_file: &Path,
-  ) -> Self {
-    let mut values = vec![
-      connection.key.clone(),
-      connection_file.to_string_lossy().into_owned(),
-    ];
-
-    if let Some(resource_dir) = &spec.resource_dir {
-      values.push(resource_dir.to_string_lossy().into_owned());
-    }
-
-    if let Ok(directory) = env::current_dir() {
-      values.push(directory.to_string_lossy().into_owned());
-    }
-
-    for name in ["HOME", "USERPROFILE"] {
-      if let Some(value) = inherited.get(OsStr::new(name)) {
-        values.push(value.to_string_lossy().into_owned());
-      }
-    }
-
-    values.retain(|value| value.len() >= 4);
-    values.sort_by_key(|value| std::cmp::Reverse(value.len()));
-    values.dedup();
-
-    Self { values }
-  }
-
-  fn sanitize(&self, bytes: &[u8]) -> String {
-    let mut value = strip_controls(&String::from_utf8_lossy(bytes));
-
-    for sensitive in &self.values {
-      let replacement = if sensitive.len() <= "<redacted>".len() {
-        "<redacted>".into()
-      } else {
-        format!(
-          "<redacted>{}",
-          "*".repeat(sensitive.len() - "<redacted>".len())
-        )
-      };
-
-      value = value.replace(sensitive, &replacement);
-    }
-
-    value
-  }
-}
-
-struct StartupCapture {
-  maximum: usize,
-  retention: usize,
-  stderr: Vec<u8>,
-  stdout: Vec<u8>,
-  truncated: bool,
-}
-
-impl StartupCapture {
-  fn append(&mut self, stream: OutputStream, bytes: &[u8]) {
-    let target = match stream {
-      OutputStream::Stderr => &mut self.stderr,
-      OutputStream::Stdout => &mut self.stdout,
-    };
-    let available = self.retention.saturating_sub(target.len());
-    let retained = bytes.len().min(available);
-
-    target.extend_from_slice(&bytes[..retained]);
-    self.truncated |= retained < bytes.len();
-  }
-
-  fn new(maximum: usize, redaction_overlap: usize) -> Self {
-    Self {
-      maximum,
-      retention: maximum.saturating_add(redaction_overlap),
-      stderr: Vec::new(),
-      stdout: Vec::new(),
-      truncated: false,
-    }
-  }
-
-  fn output(&self, redactor: &Redactor) -> StartupOutput {
-    let mut stdout = redactor.sanitize(&self.stdout);
-    let mut stderr = redactor.sanitize(&self.stderr);
-    let stdout_truncated = truncate_utf8(&mut stdout, self.maximum);
-    let stderr_truncated =
-      truncate_utf8(&mut stderr, self.maximum.saturating_sub(stdout.len()));
-
-    StartupOutput {
-      stderr,
-      stdout,
-      truncated: self.truncated || stderr_truncated || stdout_truncated,
-    }
-  }
-}
-
-async fn drain_output(
-  mut reader: impl AsyncRead + Unpin,
-  capture: Arc<Mutex<StartupCapture>>,
-  stream: OutputStream,
-) -> io::Result<()> {
-  let mut bytes = [0_u8; 4_096];
-
-  loop {
-    let count = reader.read(&mut bytes).await?;
-
-    if count == 0 {
-      return Ok(());
-    }
-
-    if let Ok(mut capture) = capture.lock() {
-      capture.append(stream, &bytes[..count]);
-    }
   }
 }
 
@@ -1876,39 +1639,11 @@ fn send_kernel_info(
   Ok(())
 }
 
-fn strip_controls(value: &str) -> String {
-  value
-    .chars()
-    .map(|character| {
-      if character.is_control() && !matches!(character, '\n' | '\r' | '\t') {
-        '\u{fffd}'
-      } else {
-        character
-      }
-    })
-    .collect()
-}
-
 fn startup_reason(reason: String, cleanup: Option<io::Error>) -> String {
   match cleanup {
     Some(error) => format!("{reason}; cleanup failed: {error}"),
     None => reason,
   }
-}
-
-fn truncate_utf8(value: &mut String, maximum: usize) -> bool {
-  if value.len() <= maximum {
-    return false;
-  }
-
-  let mut boundary = maximum;
-
-  while !value.is_char_boundary(boundary) {
-    boundary -= 1;
-  }
-
-  value.truncate(boundary);
-  true
 }
 
 fn substitute_argv(argv: &[String], connection_file: &Path) -> Vec<String> {
@@ -2179,7 +1914,6 @@ mod tests {
         heartbeat_timeout: Duration::from_millis(200),
         runtime_dir: Some(runtime_dir.into()),
         startup_timeout: Duration::from_secs(3),
-        ..LaunchConfig::default()
       },
       process_poll_interval: Duration::from_millis(10),
       shutdown_timeout: Duration::from_millis(100),
@@ -2596,7 +2330,7 @@ mod tests {
     assert_eq!(manager.state(id).unwrap(), KernelState::Failed);
     assert!(matches!(
       manager.shutdown(id).await,
-      Err(ManagerError::Supervision(LaunchError::Startup { .. }))
+      Err(ManagerError::Supervision(LaunchError::Startup(_)))
     ));
     assert_eq!(fs::read_dir(runtime.path()).unwrap().count(), 0);
   }
@@ -2799,7 +2533,7 @@ mod tests {
     )
     .await;
 
-    assert!(matches!(result, Err(LaunchError::Startup { .. })));
+    assert!(matches!(result, Err(LaunchError::Startup(_))));
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
   }
 
@@ -2943,49 +2677,5 @@ mod tests {
         traceback: None,
       },
     );
-  }
-
-  #[test]
-  fn startup_output_is_bounded_sanitized_and_redacted() {
-    let spec = KernelLaunchSpec::new(Vec::new(), BTreeMap::new(), "foo");
-    let connection = ConnectionData {
-      control_port: 1,
-      hb_port: 2,
-      ip: "127.0.0.1".into(),
-      iopub_port: 3,
-      key: "secret-key".into(),
-      shell_port: 4,
-      signature_scheme: "hmac-sha256".into(),
-      stdin_port: 5,
-      transport: "tcp".into(),
-    };
-    let redactor = Redactor::new(
-      &spec,
-      &BTreeMap::new(),
-      &connection,
-      Path::new("/private/foo.json"),
-    );
-    let mut capture = StartupCapture::new(40, redactor.maximum_value_length());
-
-    capture.append(
-      OutputStream::Stderr,
-      b"\x1b[31msecret-key /private/foo.json\x07 trailing output trailing output trailing output",
-    );
-    let output = capture.output(&redactor);
-    let rendered = output.to_string();
-
-    assert!(output.truncated);
-    assert!(output.stderr.len() + output.stdout.len() <= 40);
-    assert!(!rendered.contains("secret-key"));
-    assert!(!rendered.contains("/private/foo.json"));
-    assert!(!rendered.contains('\u{1b}'));
-
-    let mut capture = StartupCapture::new(10, redactor.maximum_value_length());
-    capture.append(OutputStream::Stderr, b"xxxxxxxxxxxxxxxxxxxxxx");
-    capture.append(OutputStream::Stdout, b"secret-key");
-    let output = capture.output(&redactor);
-
-    assert!(!output.stdout.contains("secret-key"));
-    assert!(output.stderr.len() + output.stdout.len() <= 10);
   }
 }

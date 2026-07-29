@@ -24,7 +24,7 @@ use {
     process::{ExitStatus, Stdio},
     str::FromStr,
     sync::{
-      Arc, Mutex,
+      Arc,
       atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -33,7 +33,6 @@ use {
   tempfile::{Builder, NamedTempFile},
   thiserror::Error,
   tokio::{
-    io::{AsyncRead, AsyncReadExt},
     process::{Child, Command},
     sync::{mpsc, oneshot, watch},
     task::{JoinError, JoinHandle},
@@ -58,7 +57,6 @@ pub use {
     ExecutionMessage, ExecutionRequest, ExecutionState, KernelChannels,
     KernelId, KernelInfo, KernelLaunchSpec, KernelState, LaunchConfig,
     LaunchError, LocalKernel, LocalKernelManager, ManagerConfig, ManagerError,
-    StartupOutput,
   },
   platform::Platform,
   wire::{
