@@ -112,8 +112,6 @@ pub enum LaunchError {
   InvalidCommand,
   #[error("invalid environment template for `{0}`")]
   InvalidEnvironmentTemplate(String),
-  #[error("failed to prepare Jupyter wire protocol")]
-  Protocol(#[source] WireError),
   #[error("failed to spawn kernel process")]
   Spawn(#[source] io::Error),
   #[error("kernel startup failed: {reason}{output}")]
@@ -621,13 +619,7 @@ impl LocalKernel {
       config.max_startup_output_bytes,
       redactor.maximum_value_length(),
     )));
-    let protocol = Arc::new(
-      WireProtocol::new(
-        connection.key.as_bytes(),
-        &connection.signature_scheme,
-      )
-      .map_err(LaunchError::Protocol)?,
-    );
+    let protocol = Arc::new(WireProtocol::new(connection.key.as_bytes()));
     let session = Uuid::new_v4().to_string();
     let driver_config = DriverConfig {
       client_identity: session.as_bytes().to_vec(),
@@ -2207,11 +2199,7 @@ mod tests {
       &fs::read(PathBuf::from(path)).unwrap(),
     )
     .unwrap();
-    let protocol = WireProtocol::new(
-      connection.key.as_bytes(),
-      &connection.signature_scheme,
-    )
-    .unwrap();
+    let protocol = WireProtocol::new(connection.key.as_bytes());
     let mut control = RouterSocket::new();
     let mut heartbeat = RepSocket::new();
     let mut iopub = XPubSocket::new();

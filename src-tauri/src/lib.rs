@@ -10,8 +10,7 @@ use {
   search_root::SearchRoot,
   serde::{Deserialize, Serialize, Serializer, de},
   serde_json::{Map, Value},
-  sha1::Sha1,
-  sha2::{Sha224, Sha256, Sha384, Sha512},
+  sha2::Sha256,
   std::{
     collections::{BTreeMap, BTreeSet},
     env,
@@ -63,7 +62,7 @@ pub use {
   platform::Platform,
   wire::{
     Channel, DELIMITER, Envelope, Frame, Header, JsonFrame, JsonObject,
-    MessageType, ParentHeader, SignatureScheme, WireError, WireProtocol,
+    MessageType, ParentHeader, WireError, WireProtocol,
   },
 };
 
