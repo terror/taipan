@@ -77,83 +77,11 @@ struct SearchRoot {
   source: KernelSource,
 }
 
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Platform {
-  Linux,
-  Macos,
-  Windows,
-}
-
-struct SearchEnvironment {
-  home: Option<PathBuf>,
-  platform: Platform,
-  variables: BTreeMap<OsString, OsString>,
-}
-
-impl SearchEnvironment {
-  fn current() -> Self {
-    #[cfg(target_os = "macos")]
-    let platform = Platform::Macos;
-    #[cfg(target_os = "windows")]
-    let platform = Platform::Windows;
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    let platform = Platform::Linux;
-
-    let variables = std::env::vars_os().collect::<BTreeMap<_, _>>();
-
-    let home = variables
-      .get(OsStr::new(if platform == Platform::Windows {
-        "USERPROFILE"
-      } else {
-        "HOME"
-      }))
-      .filter(|value| !value.is_empty())
-      .map(PathBuf::from);
-
-    Self {
-      home,
-      platform,
-      variables,
-    }
-  }
-
-  fn path(&self, name: &str) -> Option<PathBuf> {
-    self
-      .variables
-      .get(OsStr::new(name))
-      .filter(|value| !value.is_empty())
-      .map(PathBuf::from)
-  }
-
-  fn paths(&self, name: &str) -> Vec<PathBuf> {
-    self
-      .variables
-      .get(OsStr::new(name))
-      .filter(|value| !value.is_empty())
-      .map(|value| {
-        std::env::split_paths(value)
-          .filter(|path| !path.as_os_str().is_empty())
-          .collect()
-      })
-      .unwrap_or_default()
-  }
-
-  fn truthy(&self, name: &str) -> bool {
-    self.variables.get(OsStr::new(name)).is_some_and(|value| {
-      !matches!(
-        value.to_string_lossy().to_ascii_lowercase().as_str(),
-        "no" | "n" | "false" | "off" | "0" | "0.0"
-      )
-    })
-  }
-}
-
 pub struct KernelSpecManager;
 
 impl KernelSpecManager {
   pub fn discover(metadata: &Metadata) -> KernelDiscovery {
-    Self::discover_in(&search_roots(&SearchEnvironment::current()), metadata)
+    Self::discover_in(&search_roots(&Environment::current()), metadata)
   }
 
   fn discover_in(roots: &[SearchRoot], metadata: &Metadata) -> KernelDiscovery {
@@ -182,7 +110,7 @@ impl KernelSpecManager {
   pub fn launch_spec(
     name: &str,
   ) -> std::result::Result<KernelLaunchSpec, String> {
-    let (specs, _) = load_specs(&search_roots(&SearchEnvironment::current()));
+    let (specs, _) = load_specs(&search_roots(&Environment::current()));
     let spec = specs
       .into_iter()
       .find(|spec| spec.name.eq_ignore_ascii_case(name))
@@ -376,7 +304,7 @@ fn recommendation(specs: &[KernelSpec], metadata: &Metadata) -> Option<usize> {
   })
 }
 
-fn search_roots(environment: &SearchEnvironment) -> Vec<SearchRoot> {
+fn search_roots(environment: &Environment) -> Vec<SearchRoot> {
   let mut roots = environment
     .paths("JUPYTER_PATH")
     .into_iter()
@@ -424,7 +352,7 @@ fn search_roots(environment: &SearchEnvironment) -> Vec<SearchRoot> {
   roots
 }
 
-fn system_data_dirs(environment: &SearchEnvironment) -> Vec<PathBuf> {
+fn system_data_dirs(environment: &Environment) -> Vec<PathBuf> {
   match environment.platform {
     Platform::Linux | Platform::Macos => vec![
       PathBuf::from("/usr/local/share/jupyter"),
@@ -437,7 +365,7 @@ fn system_data_dirs(environment: &SearchEnvironment) -> Vec<PathBuf> {
   }
 }
 
-fn user_data_dir(environment: &SearchEnvironment) -> Option<PathBuf> {
+fn user_data_dir(environment: &Environment) -> Option<PathBuf> {
   match environment.platform {
     Platform::Linux => environment.path("XDG_DATA_HOME").or_else(|| {
       environment
@@ -481,8 +409,8 @@ fn valid_name(name: &str) -> bool {
 mod tests {
   use super::*;
 
-  fn environment(platform: Platform) -> SearchEnvironment {
-    SearchEnvironment {
+  fn environment(platform: Platform) -> Environment {
+    Environment {
       home: Some(PathBuf::from("/home/foo")),
       platform,
       variables: BTreeMap::new(),
@@ -560,7 +488,7 @@ mod tests {
   #[test]
   fn platform_user_and_system_locations() {
     #[track_caller]
-    fn case(environment: &SearchEnvironment, user: &str, system: &[&str]) {
+    fn case(environment: &Environment, user: &str, system: &[&str]) {
       let roots = search_roots(environment);
       assert_eq!(roots[0].path, Path::new(user));
       assert_eq!(

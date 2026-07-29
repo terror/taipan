@@ -1,4 +1,3 @@
-#[allow(unused_imports)]
 use {
   channel::{
     ChannelDriver, DriverConfig, HeartbeatDriver, TransportError,
@@ -14,6 +13,7 @@ use {
   },
   kernelspec::{KernelDiscovery, KernelSpecManager},
   notebook::{Metadata, Notebook},
+  platform::Platform,
   serde::{Deserialize, Serialize, Serializer, de},
   serde_json::{Map, Value},
   sha1::Sha1,
@@ -48,8 +48,8 @@ use {
   typeshare::{U53, typeshare},
   uuid::Uuid,
   wire::{
-    Channel, DELIMITER, Envelope, Frame, Header, JsonObject, MessageType,
-    ParentHeader, WireError, WireProtocol,
+    Channel, Envelope, Frame, Header, JsonObject, MessageType, ParentHeader,
+    WireError, WireProtocol,
   },
   zeromq::{
     DealerRecvHalf, DealerSendHalf, DealerSocket, ReqSocket, Socket,
@@ -82,12 +82,14 @@ use {
   zeromq::{RepSocket, RouterSocket, XPubSocket},
 };
 
-pub mod channel;
+mod channel;
+mod environment;
 mod error;
-pub mod kernel;
+mod kernel;
 mod kernelspec;
 mod notebook;
-pub mod wire;
+mod platform;
+mod wire;
 
 type Result<T = (), E = Error> = std::result::Result<T, E>;
 
