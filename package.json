@@ -20,14 +20,11 @@
     "@lezer/highlight": "^1.2.3",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.2",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
     "dompurify": "^3.4.12",
     "lucide-react": "^1.27.0",
     "marked": "^18.0.7",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "tailwind-merge": "^3.6.0"
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
