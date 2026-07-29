@@ -4,7 +4,8 @@ use {
   serde::{Deserialize, Serialize, Serializer, de},
   serde_json::{Map, Value},
   std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
+    ffi::{OsStr, OsString},
     fs::{self, File},
     io::{self, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
@@ -15,6 +16,7 @@ use {
 };
 
 mod error;
+mod kernelspec;
 mod notebook;
 pub mod wire;
 
@@ -34,6 +36,17 @@ async fn save_notebook(path: PathBuf, notebook: Notebook) -> Result {
     .map_err(Error::Task)?
 }
 
+#[tauri::command]
+async fn discover_kernelspecs(
+  metadata: notebook::Metadata,
+) -> Result<kernelspec::KernelDiscovery> {
+  tauri::async_runtime::spawn_blocking(move || {
+    kernelspec::KernelSpecManager::discover(&metadata)
+  })
+  .await
+  .map_err(Error::Task)
+}
+
 /// # Panics
 ///
 /// Panics if the Tauri application cannot run.
@@ -41,7 +54,11 @@ async fn save_notebook(path: PathBuf, notebook: Notebook) -> Result {
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
-    .invoke_handler(tauri::generate_handler![open_notebook, save_notebook])
+    .invoke_handler(tauri::generate_handler![
+      discover_kernelspecs,
+      open_notebook,
+      save_notebook
+    ])
     .run(tauri::generate_context!())
     .expect("error while running Taipan");
 }

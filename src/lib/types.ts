@@ -46,6 +46,26 @@ export interface ExecuteResultOutput {
   output_type: 'execute_result';
 }
 
+export interface KernelDiagnostic {
+  message: string;
+  name?: string;
+  source: string;
+}
+
+export interface KernelSummary {
+  display_name: string;
+  id: string;
+  language: string;
+  name: string;
+  source: string;
+}
+
+export interface KernelDiscovery {
+  diagnostics: KernelDiagnostic[];
+  kernels: KernelSummary[];
+  recommended_id?: string;
+}
+
 export interface MarkdownCell {
   attachments?: Attachments;
   cell_type: 'markdown';
