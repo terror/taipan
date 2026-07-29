@@ -219,38 +219,6 @@ export function App() {
     <main className='flex h-svh flex-col overflow-hidden bg-zinc-50 font-sans text-zinc-900 antialiased select-none dark:bg-zinc-950 dark:text-zinc-100'>
       {session ? (
         <div className='flex min-h-0 flex-1'>
-          <aside className='hidden w-56 shrink-0 border-r border-zinc-200 bg-zinc-100 lg:flex lg:flex-col dark:border-zinc-800 dark:bg-zinc-900'>
-            <div className='border-b border-zinc-200 px-4 py-4 dark:border-zinc-800'>
-              <p className='text-[10px] font-semibold tracking-[0.13em] text-zinc-500 uppercase dark:text-zinc-400'>
-                Document
-              </p>
-              <p
-                className='mt-2 truncate text-[13px] font-medium'
-                title={session.path}
-              >
-                {fileName(session.path)}
-              </p>
-              <p
-                className='mt-0.5 truncate text-[11px] text-zinc-500 dark:text-zinc-400'
-                title={session.path}
-              >
-                {session.path}
-              </p>
-            </div>
-            <div className='px-2 py-3'>
-              <div className='flex items-center justify-between rounded-md bg-zinc-200/70 px-2.5 py-2 text-xs dark:bg-zinc-800/80'>
-                <span className='font-medium'>Cells</span>
-                <span className='text-zinc-500 tabular-nums dark:text-zinc-400'>
-                  {session.notebook.cells.length}
-                </span>
-              </div>
-            </div>
-            <div className='mt-auto border-t border-zinc-200 px-4 py-3 text-[11px] text-zinc-500 dark:border-zinc-800 dark:text-zinc-400'>
-              nbformat {session.notebook.nbformat}.
-              {session.notebook.nbformat_minor}
-            </div>
-          </aside>
-
           <section className='min-w-0 flex-1 overflow-y-auto bg-zinc-50 dark:bg-zinc-950'>
             <div className='mx-auto w-full max-w-4xl px-4 py-8 sm:px-8 sm:py-12'>
               <div className='mb-8 flex items-end justify-between gap-4 sm:mb-10'>
@@ -271,10 +239,6 @@ export function App() {
                   </div>
                 </div>
                 <div className='flex shrink-0 items-center gap-1.5'>
-                  <p className='mr-2 hidden text-xs text-zinc-500 tabular-nums sm:block dark:text-zinc-400'>
-                    {session.notebook.cells.length}{' '}
-                    {session.notebook.cells.length === 1 ? 'cell' : 'cells'}
-                  </p>
                   <KernelSelector
                     key={session.documentId}
                     onSelection={setKernel}
@@ -326,48 +290,40 @@ export function App() {
                         <span className='text-[10px] font-semibold tracking-[0.12em] text-zinc-500 uppercase dark:text-zinc-400'>
                           {cell.cell_type}
                         </span>
-                        <div className='flex items-center gap-2'>
-                          {isCodeCell(cell) && (
-                            <>
-                              <span className='font-mono text-[10px] text-zinc-400 tabular-nums dark:text-zinc-500'>
-                                In [
-                                {cellExecution?.running
-                                  ? '*'
-                                  : (cell.execution_count ?? ' ')}
-                                ]
-                              </span>
-                              <Button
-                                variant='ghost'
-                                size='compact'
-                                type='button'
-                                disabled={
-                                  !!execution ||
-                                  !kernel ||
-                                  kernel.state !== 'idle'
-                                }
-                                onClick={() =>
-                                  void runCell(
-                                    identity,
-                                    sourceText(cell.source)
-                                  )
-                                }
-                              >
-                                {cellExecution ? (
-                                  <LoaderCircle
-                                    className='size-3 animate-spin'
-                                    aria-hidden='true'
-                                  />
-                                ) : (
-                                  <Play className='size-3' aria-hidden='true' />
-                                )}
-                                Run
-                              </Button>
-                            </>
-                          )}
-                          <span className='font-mono text-[10px] text-zinc-400 tabular-nums dark:text-zinc-500'>
-                            {String(index + 1).padStart(2, '0')}
-                          </span>
-                        </div>
+                        {isCodeCell(cell) && (
+                          <div className='flex items-center gap-2'>
+                            <span className='font-mono text-[10px] text-zinc-400 tabular-nums dark:text-zinc-500'>
+                              In [
+                              {cellExecution?.running
+                                ? '*'
+                                : (cell.execution_count ?? ' ')}
+                              ]
+                            </span>
+                            <Button
+                              variant='ghost'
+                              size='compact'
+                              type='button'
+                              disabled={
+                                !!execution ||
+                                !kernel ||
+                                kernel.state !== 'idle'
+                              }
+                              onClick={() =>
+                                void runCell(identity, sourceText(cell.source))
+                              }
+                            >
+                              {cellExecution ? (
+                                <LoaderCircle
+                                  className='size-3 animate-spin'
+                                  aria-hidden='true'
+                                />
+                              ) : (
+                                <Play className='size-3' aria-hidden='true' />
+                              )}
+                              Run
+                            </Button>
+                          </div>
+                        )}
                       </div>
                       {isMarkdownCell(cell) ? (
                         <MarkdownCellView
@@ -412,10 +368,7 @@ export function App() {
                         />
                       )}
                       {isCodeCell(cell) && outputs.length > 0 && (
-                        <SavedOutputs
-                          outputs={outputs}
-                          live={cellExecution !== null}
-                        />
+                        <SavedOutputs outputs={outputs} />
                       )}
                     </article>
                   );
