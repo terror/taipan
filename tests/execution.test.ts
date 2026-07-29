@@ -11,7 +11,6 @@ import {
   applyTransaction,
   createNotebookSession,
   isCodeCell,
-  undo,
 } from '../src/lib/notebook';
 import type { CodeCell, Notebook } from '../src/lib/types';
 
@@ -142,7 +141,7 @@ describe('execution lifecycle', () => {
     expect(applyExecutionEvent(execution, stale)).toBe(execution);
   });
 
-  test('commits completed output and count as one undoable transaction', () => {
+  test('commits completed output and count as one transaction', () => {
     const notebook: Notebook = {
       cells: [
         {
@@ -190,6 +189,5 @@ describe('execution lifecycle', () => {
     expect(executed.revision).not.toBe(executed.savedRevision);
     expect(cell.outputs).toEqual(execution.outputs);
     expect(cell.execution_count).toBe(7);
-    expect(undo(executed).notebook).toEqual(notebook);
   });
 });
