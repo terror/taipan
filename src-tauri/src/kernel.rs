@@ -2192,6 +2192,24 @@ mod tests {
     .collect()
   }
 
+  async fn bind_mock(socket: &mut impl Socket, endpoint: &str) {
+    time::timeout(Duration::from_secs(3), async {
+      loop {
+        match socket.bind(endpoint).await {
+          Ok(_) => return,
+          Err(ZmqError::Network(error))
+            if error.kind() == io::ErrorKind::AddrInUse =>
+          {
+            time::sleep(Duration::from_millis(10)).await;
+          }
+          Err(error) => panic!("{error}"),
+        }
+      }
+    })
+    .await
+    .unwrap();
+  }
+
   fn frames_to_message(frames: Vec<Vec<u8>>) -> ZmqMessage {
     let mut frames = frames.into_iter();
     let mut message = ZmqMessage::from(frames.next().unwrap());
@@ -2249,26 +2267,11 @@ mod tests {
     let mut shell = RouterSocket::new();
     let mut stdin = RouterSocket::new();
 
-    control
-      .bind(&connection.endpoint(Channel::Control))
-      .await
-      .unwrap();
-    heartbeat
-      .bind(&connection.endpoint(Channel::Heartbeat))
-      .await
-      .unwrap();
-    iopub
-      .bind(&connection.endpoint(Channel::Iopub))
-      .await
-      .unwrap();
-    shell
-      .bind(&connection.endpoint(Channel::Shell))
-      .await
-      .unwrap();
-    stdin
-      .bind(&connection.endpoint(Channel::Stdin))
-      .await
-      .unwrap();
+    bind_mock(&mut control, &connection.endpoint(Channel::Control)).await;
+    bind_mock(&mut heartbeat, &connection.endpoint(Channel::Heartbeat)).await;
+    bind_mock(&mut iopub, &connection.endpoint(Channel::Iopub)).await;
+    bind_mock(&mut shell, &connection.endpoint(Channel::Shell)).await;
+    bind_mock(&mut stdin, &connection.endpoint(Channel::Stdin)).await;
 
     let _child = env::var_os("MOCK_CHILD_FILE").map(|path| {
       let child = StdCommand::new("sleep").arg("60").spawn().unwrap();
