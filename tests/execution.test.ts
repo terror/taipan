@@ -8,7 +8,7 @@ import {
   beginExecution,
 } from '../src/lib/execution';
 import {
-  applyTransaction,
+  commitCellExecution,
   createNotebookSession,
   isCodeCell,
 } from '../src/lib/notebook';
@@ -167,18 +167,12 @@ describe('execution lifecycle', () => {
       reply(),
       { type: 'status', execution_state: 'idle' }
     );
-    const executed = applyTransaction(session, [
-      {
-        type: 'replace-outputs',
-        cell: CELL_ID,
-        outputs: execution.outputs,
-      },
-      {
-        type: 'set-execution-count',
-        cell: CELL_ID,
-        executionCount: execution.executionCount,
-      },
-    ]);
+    const executed = commitCellExecution(
+      session,
+      CELL_ID,
+      execution.outputs,
+      execution.executionCount
+    );
     const cell = executed.notebook.cells[0];
 
     if (!isCodeCell(cell)) {

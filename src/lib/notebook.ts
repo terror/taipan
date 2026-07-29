@@ -19,7 +19,6 @@ export interface NotebookSession {
   notebook: Notebook;
   cellIdentities: CellIdentity[];
   revision: number;
-  nextRevision: number;
   savedRevision: number;
 }
 
@@ -31,23 +30,6 @@ export interface SessionCell {
   identity: CellIdentity;
   cell: NotebookCell;
 }
-
-export type NotebookOperation =
-  | {
-      type: 'replace-source';
-      cell: CellIdentity;
-      source: Source;
-    }
-  | {
-      type: 'replace-outputs';
-      cell: CellIdentity;
-      outputs: NotebookOutput[];
-    }
-  | {
-      type: 'set-execution-count';
-      cell: CellIdentity;
-      executionCount: ExecutionCount;
-    };
 
 const GENERATION_LIMIT = 1_000;
 
@@ -76,7 +58,6 @@ export function createNotebookSession(
     notebook,
     cellIdentities,
     revision: 0,
-    nextRevision: 1,
     savedRevision: 0,
   };
 }
@@ -88,26 +69,51 @@ export function sessionCells(session: NotebookSession): SessionCell[] {
   }));
 }
 
-export function applyTransaction(
+export function replaceCellSource(
   session: NotebookSession,
-  operations: readonly NotebookOperation[]
+  identity: CellIdentity,
+  source: Source
 ): NotebookSession {
-  const notebook = operations.reduce(
-    (notebook, operation) =>
-      applyOperation(notebook, session.cellIdentities, operation),
-    session.notebook
-  );
+  const index = session.cellIdentities.indexOf(identity);
 
-  if (notebook === session.notebook) {
+  if (
+    index === -1 ||
+    sourceText(session.notebook.cells[index].source) === sourceText(source)
+  ) {
     return session;
   }
 
-  return {
-    ...session,
-    notebook,
-    revision: session.nextRevision,
-    nextRevision: session.nextRevision + 1,
-  };
+  const cell = session.notebook.cells[index];
+
+  return replaceCell(session, index, { ...cell, source });
+}
+
+export function commitCellExecution(
+  session: NotebookSession,
+  identity: CellIdentity,
+  outputs: NotebookOutput[],
+  executionCount: ExecutionCount
+): NotebookSession {
+  const index = session.cellIdentities.indexOf(identity);
+
+  if (index === -1) {
+    return session;
+  }
+
+  const cell = session.notebook.cells[index];
+
+  if (
+    !isCodeCell(cell) ||
+    (equal(cell.outputs, outputs) && cell.execution_count === executionCount)
+  ) {
+    return session;
+  }
+
+  return replaceCell(session, index, {
+    ...cell,
+    outputs,
+    execution_count: executionCount,
+  });
 }
 
 export function markNotebookSaved(
@@ -117,7 +123,7 @@ export function markNotebookSaved(
   if (
     revision === session.savedRevision ||
     revision < 0 ||
-    revision >= session.nextRevision
+    revision > session.revision
   ) {
     return session;
   }
@@ -154,55 +160,20 @@ function generateUnique(generate: () => string, existing: Set<string>): string {
   throw new Error('Unable to generate a unique session identity');
 }
 
-function applyOperation(
-  notebook: Notebook,
-  cellIdentities: CellIdentity[],
-  operation: NotebookOperation
-): Notebook {
-  const index = cellIdentities.indexOf(operation.cell);
-
-  if (index === -1) {
-    return notebook;
-  }
-
-  const cell = notebook.cells[index];
-
-  switch (operation.type) {
-    case 'replace-source':
-      return sourceText(cell.source) === sourceText(operation.source)
-        ? notebook
-        : replaceCell(notebook, index, {
-            ...cell,
-            source: operation.source,
-          });
-    case 'replace-outputs':
-      return isCodeCell(cell) && !equal(cell.outputs, operation.outputs)
-        ? replaceCell(notebook, index, {
-            ...cell,
-            outputs: operation.outputs,
-          })
-        : notebook;
-    case 'set-execution-count':
-      return isCodeCell(cell) &&
-        cell.execution_count !== operation.executionCount
-        ? replaceCell(notebook, index, {
-            ...cell,
-            execution_count: operation.executionCount,
-          })
-        : notebook;
-  }
-}
-
 function replaceCell(
-  notebook: Notebook,
+  session: NotebookSession,
   index: number,
   cell: NotebookCell
-): Notebook {
+): NotebookSession {
   return {
-    ...notebook,
-    cells: notebook.cells.map((candidate, candidateIndex) =>
-      candidateIndex === index ? cell : candidate
-    ),
+    ...session,
+    notebook: {
+      ...session.notebook,
+      cells: session.notebook.cells.map((candidate, candidateIndex) =>
+        candidateIndex === index ? cell : candidate
+      ),
+    },
+    revision: session.revision + 1,
   };
 }
 
