@@ -1,4 +1,5 @@
 import { CellEditor } from '@/components/cell-editor';
+import { KernelSelector } from '@/components/kernel-selector';
 import { MarkdownCellView } from '@/components/markdown-cell';
 import { SavedOutputs } from '@/components/saved-outputs';
 import { Button } from '@/components/ui/button';
@@ -158,6 +159,10 @@ export function App() {
                     {session.notebook.cells.length}{' '}
                     {session.notebook.cells.length === 1 ? 'cell' : 'cells'}
                   </p>
+                  <KernelSelector
+                    key={session.documentId}
+                    metadata={session.notebook.metadata}
+                  />
                   <Button
                     variant='ghost'
                     size='sm'
