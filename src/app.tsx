@@ -338,8 +338,7 @@ export function App() {
                               </span>
                               <Button
                                 variant='ghost'
-                                size='sm'
-                                className='h-6 px-2 text-[11px]'
+                                size='compact'
                                 type='button'
                                 disabled={
                                   !!execution ||
