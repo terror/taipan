@@ -10,7 +10,7 @@ edition = "2024"
 
 [lib]
 name = "taipan_lib"
-crate-type = ["lib", "cdylib", "staticlib"]
+crate-type = ["rlib"]
 
 [lints.clippy]
 all = { level = "deny", priority = -1 }

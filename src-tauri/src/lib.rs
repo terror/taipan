@@ -245,7 +245,6 @@ async fn discover_kernelspecs() -> Result<KernelDiscovery> {
 /// # Panics
 ///
 /// Panics if the Tauri application cannot run.
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   let exiting = Arc::new(AtomicBool::new(false));
   let app = tauri::Builder::default()
