@@ -1,7 +1,5 @@
 set dotenv-load
 
-export RUST_LOG := 'info'
-
 alias d := dev
 alias f := fmt
 alias t := test

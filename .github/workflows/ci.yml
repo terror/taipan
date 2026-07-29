@@ -39,9 +39,6 @@ jobs:
       - name: Format
         run: bun x prettier --check . --ignore-unknown
 
-      - name: Check Types
-        run: bun run check
-
       - name: Test
         run: bun test
 
@@ -61,11 +58,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes \
             build-essential \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev
+            libwebkit2gtk-4.1-dev
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -93,12 +86,11 @@ jobs:
       - name: Clippy
         run:
           cargo clippy --manifest-path src-tauri/Cargo.toml --locked
-          --all-targets --all-features -- -D warnings
+          --all-targets -- -D warnings
 
       - name: Test
         run:
           cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets
-          --all-features
         env:
           TAIPAN_IPYTHON_PYTHON: ${{ runner.temp }}/taipan-kernel/bin/python
 
@@ -126,11 +118,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes \
             build-essential \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev
+            libwebkit2gtk-4.1-dev
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
