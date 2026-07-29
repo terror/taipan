@@ -51,11 +51,7 @@ function apply(
 function reply(): ExecutionMessage {
   return {
     type: 'execute_reply',
-    ename: null,
-    evalue: null,
     execution_count: 7,
-    status: 'ok',
-    traceback: null,
   };
 }
 
@@ -87,7 +83,6 @@ describe('execution lifecycle', () => {
     const execution = apply(
       begin(),
       { type: 'status', execution_state: 'busy' },
-      { type: 'execute_input', code: 'foo', execution_count: 7 },
       { type: 'stream', name: 'stdout', text: 'foo\n' },
       {
         type: 'display_data',
