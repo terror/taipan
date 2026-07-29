@@ -72,10 +72,20 @@ jobs:
         with:
           components: clippy, rustfmt
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.13.7
+
       - name: Cache Rust Dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+
+      - name: Install Pinned IPython Kernel
+        run: |
+          python -m venv "$RUNNER_TEMP/taipan-kernel"
+          "$RUNNER_TEMP/taipan-kernel/bin/pip" install --requirement src-tauri/tests/ipython-requirements.txt
 
       - name: Format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
@@ -89,6 +99,8 @@ jobs:
         run:
           cargo test --manifest-path src-tauri/Cargo.toml --locked --all-targets
           --all-features
+        env:
+          TAIPAN_IPYTHON_PYTHON: ${{ runner.temp }}/taipan-kernel/bin/python
 
   native-build:
     name: ${{ matrix.name }}

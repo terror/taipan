@@ -1,4 +1,7 @@
-use {super::*, crate::notebook::Metadata};
+use {
+  super::*,
+  crate::{kernel::KernelLaunchSpec, notebook::Metadata},
+};
 
 const CONNECTION_FILE: &str = "{connection_file}";
 
@@ -156,100 +159,7 @@ impl KernelSpecManager {
   }
 
   fn discover_in(roots: &[SearchRoot], metadata: &Metadata) -> KernelDiscovery {
-    let mut diagnostics = Vec::new();
-    let mut names = BTreeSet::new();
-    let mut specs = Vec::new();
-
-    for root in roots {
-      let entries = match fs::read_dir(&root.path) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-        Err(error) => {
-          diagnostics.push(KernelDiagnostic {
-            message: format!("failed to read kernelspec directory: {error}"),
-            name: None,
-            source: root.source.label().into(),
-          });
-          continue;
-        }
-      };
-
-      let mut entries = entries.collect::<Vec<_>>();
-      entries.sort_by(|left, right| match (left, right) {
-        (Ok(left), Ok(right)) => left
-          .file_name()
-          .to_string_lossy()
-          .to_ascii_lowercase()
-          .cmp(&right.file_name().to_string_lossy().to_ascii_lowercase())
-          .then_with(|| left.file_name().cmp(&right.file_name())),
-        (Ok(_), Err(_)) => std::cmp::Ordering::Less,
-        (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
-        (Err(left), Err(right)) => left.to_string().cmp(&right.to_string()),
-      });
-
-      for entry in entries {
-        let entry = match entry {
-          Ok(entry) => entry,
-          Err(error) => {
-            diagnostics.push(KernelDiagnostic {
-              message: format!("failed to read kernelspec entry: {error}"),
-              name: None,
-              source: root.source.label().into(),
-            });
-            continue;
-          }
-        };
-
-        let resource_dir = entry.path();
-        let kernel_file = resource_dir.join("kernel.json");
-
-        if !resource_dir.is_dir() || !kernel_file.is_file() {
-          continue;
-        }
-
-        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-          diagnostics.push(KernelDiagnostic {
-            message: "kernelspec directory name is not valid UTF-8".into(),
-            name: None,
-            source: root.source.label().into(),
-          });
-          continue;
-        };
-
-        if !valid_name(&name) {
-          diagnostics.push(KernelDiagnostic {
-            message: "name must contain only ASCII letters, numbers, hyphens, periods, and underscores".into(),
-            name: Some(name),
-            source: root.source.label().into(),
-          });
-          continue;
-        }
-
-        let canonical_name = name.to_ascii_lowercase();
-
-        if names.contains(&canonical_name) {
-          continue;
-        }
-
-        match load_spec(
-          canonical_name.clone(),
-          root.source,
-          resource_dir,
-          kernel_file,
-        ) {
-          Ok(spec) => {
-            names.insert(canonical_name);
-            specs.push(spec);
-          }
-          Err(message) => diagnostics.push(KernelDiagnostic {
-            message,
-            name: Some(name),
-            source: root.source.label().into(),
-          }),
-        }
-      }
-    }
-
+    let (specs, diagnostics) = load_specs(roots);
     let recommended = recommendation(&specs, metadata);
     let kernels = specs
       .iter()
@@ -270,6 +180,123 @@ impl KernelSpecManager {
       recommended_id,
     }
   }
+
+  pub fn launch_spec(
+    name: &str,
+  ) -> std::result::Result<KernelLaunchSpec, String> {
+    let (specs, _) = load_specs(&search_roots(&SearchEnvironment::current()));
+    let spec = specs
+      .into_iter()
+      .find(|spec| spec.name.eq_ignore_ascii_case(name))
+      .ok_or_else(|| format!("kernelspec `{name}` is not available"))?;
+
+    Ok(KernelLaunchSpec {
+      argv: spec.argv,
+      env: spec.env,
+      language: spec.language,
+      resource_dir: Some(spec.resource_dir),
+    })
+  }
+}
+
+fn load_specs(
+  roots: &[SearchRoot],
+) -> (Vec<KernelSpec>, Vec<KernelDiagnostic>) {
+  let mut diagnostics = Vec::new();
+  let mut names = BTreeSet::new();
+  let mut specs = Vec::new();
+
+  for root in roots {
+    let entries = match fs::read_dir(&root.path) {
+      Ok(entries) => entries,
+      Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+      Err(error) => {
+        diagnostics.push(KernelDiagnostic {
+          message: format!("failed to read kernelspec directory: {error}"),
+          name: None,
+          source: root.source.label().into(),
+        });
+        continue;
+      }
+    };
+
+    let mut entries = entries.collect::<Vec<_>>();
+    entries.sort_by(|left, right| match (left, right) {
+      (Ok(left), Ok(right)) => left
+        .file_name()
+        .to_string_lossy()
+        .to_ascii_lowercase()
+        .cmp(&right.file_name().to_string_lossy().to_ascii_lowercase())
+        .then_with(|| left.file_name().cmp(&right.file_name())),
+      (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+      (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+      (Err(left), Err(right)) => left.to_string().cmp(&right.to_string()),
+    });
+
+    for entry in entries {
+      let entry = match entry {
+        Ok(entry) => entry,
+        Err(error) => {
+          diagnostics.push(KernelDiagnostic {
+            message: format!("failed to read kernelspec entry: {error}"),
+            name: None,
+            source: root.source.label().into(),
+          });
+          continue;
+        }
+      };
+
+      let resource_dir = entry.path();
+      let kernel_file = resource_dir.join("kernel.json");
+
+      if !resource_dir.is_dir() || !kernel_file.is_file() {
+        continue;
+      }
+
+      let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+        diagnostics.push(KernelDiagnostic {
+          message: "kernelspec directory name is not valid UTF-8".into(),
+          name: None,
+          source: root.source.label().into(),
+        });
+        continue;
+      };
+
+      if !valid_name(&name) {
+        diagnostics.push(KernelDiagnostic {
+            message: "name must contain only ASCII letters, numbers, hyphens, periods, and underscores".into(),
+            name: Some(name),
+            source: root.source.label().into(),
+          });
+        continue;
+      }
+
+      let canonical_name = name.to_ascii_lowercase();
+
+      if names.contains(&canonical_name) {
+        continue;
+      }
+
+      match load_spec(
+        canonical_name.clone(),
+        root.source,
+        resource_dir,
+        kernel_file,
+      ) {
+        Ok(spec) => {
+          names.insert(canonical_name);
+          specs.push(spec);
+        }
+        Err(message) => diagnostics.push(KernelDiagnostic {
+          message,
+          name: Some(name),
+          source: root.source.label().into(),
+        }),
+      }
+    }
+  }
+
+  (specs, diagnostics)
 }
 
 fn load_spec(

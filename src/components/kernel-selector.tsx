@@ -1,4 +1,4 @@
-import { discoverKernelspecs } from '@/lib/kernelspec';
+import { discoverKernelspecs, selectKernel } from '@/lib/kernelspec';
 import type { KernelDiscovery, Metadata } from '@/lib/types';
 import { ChevronDown, Cpu } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -14,7 +14,22 @@ function errorMessage(error: unknown): string {
 export function KernelSelector({ metadata }: KernelSelectorProps) {
   const [discovery, setDiscovery] = useState<KernelDiscovery | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isLaunching, setIsLaunching] = useState(false);
   const [selectedId, setSelectedId] = useState('');
+
+  async function activateKernel(name: string | null) {
+    setIsLaunching(true);
+    setError(null);
+
+    try {
+      await selectKernel(name);
+    } catch (cause) {
+      setSelectedId('');
+      setError(errorMessage(cause));
+    } finally {
+      setIsLaunching(false);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -27,6 +42,10 @@ export function KernelSelector({ metadata }: KernelSelectorProps) {
 
         setDiscovery(result);
         setSelectedId(result.recommended_id ?? '');
+        const recommended = result.kernels.find(
+          (kernel) => kernel.id === result.recommended_id
+        );
+        void activateKernel(recommended?.name ?? null);
       })
       .catch((cause: unknown) => {
         if (active) {
@@ -38,6 +57,15 @@ export function KernelSelector({ metadata }: KernelSelectorProps) {
       active = false;
     };
   }, [metadata]);
+
+  async function select(selectedId: string) {
+    const kernel = discovery?.kernels.find(
+      (kernel) => kernel.id === selectedId
+    );
+
+    setSelectedId(selectedId);
+    await activateKernel(kernel?.name ?? null);
+  }
 
   const diagnostics = discovery?.diagnostics ?? [];
   const diagnosticText = diagnostics
@@ -59,8 +87,10 @@ export function KernelSelector({ metadata }: KernelSelectorProps) {
             className='h-6 max-w-40 min-w-0 cursor-pointer appearance-none bg-transparent py-0 pr-7 pl-1.5 text-xs font-medium outline-none disabled:cursor-default sm:max-w-52 dark:bg-zinc-900'
             aria-label='Notebook kernel'
             value={selectedId}
-            disabled={!discovery || discovery.kernels.length === 0}
-            onChange={(event) => setSelectedId(event.target.value)}
+            disabled={
+              isLaunching || !discovery || discovery.kernels.length === 0
+            }
+            onChange={(event) => void select(event.target.value)}
           >
             {!discovery ? (
               <option value=''>Discovering kernels...</option>
@@ -90,7 +120,7 @@ export function KernelSelector({ metadata }: KernelSelectorProps) {
           role='status'
         >
           {error
-            ? 'Kernel discovery failed'
+            ? 'Kernel operation failed'
             : `${diagnostics.length} invalid kernelspec${diagnostics.length === 1 ? '' : 's'}`}
         </p>
       )}
