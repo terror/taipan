@@ -284,6 +284,7 @@ export function App() {
                   return (
                     <article
                       className='group overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.025)] transition-[border-color,box-shadow] duration-150 focus-within:border-zinc-400 focus-within:shadow-[0_0_0_3px_rgba(0,0,0,0.04)] dark:border-zinc-800 dark:bg-zinc-900 dark:focus-within:border-zinc-600 dark:focus-within:shadow-[0_0_0_3px_rgba(255,255,255,0.04)]'
+                      aria-label={`${cell.cell_type} cell ${index + 1}`}
                       key={identity}
                     >
                       <div className='flex items-center justify-between gap-3 px-3 py-2 sm:px-4'>
@@ -368,7 +369,10 @@ export function App() {
                         />
                       )}
                       {isCodeCell(cell) && outputs.length > 0 && (
-                        <SavedOutputs outputs={outputs} />
+                        <SavedOutputs
+                          live={cellExecution !== null}
+                          outputs={outputs}
+                        />
                       )}
                     </article>
                   );
