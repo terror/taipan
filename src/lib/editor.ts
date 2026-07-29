@@ -1,63 +1,6 @@
-import {
-  Annotation,
-  type EditorState,
-  type Transaction,
-  type TransactionSpec,
-} from '@codemirror/state';
-
 import type { Metadata } from './types';
 
 export type CellEditorLanguage = 'markdown' | 'plain-text' | 'python';
-
-export const externalDocumentUpdate = Annotation.define<boolean>();
-
-interface ControlledEditorView {
-  readonly state: EditorState;
-  destroy(): void;
-  dispatch(spec: TransactionSpec): void;
-}
-
-export class EditorDocumentController {
-  private disposed = false;
-
-  constructor(private readonly view: ControlledEditorView) {}
-
-  synchronize(source: string): boolean {
-    if (this.disposed || this.view.state.doc.toString() === source) {
-      return false;
-    }
-
-    this.view.dispatch({
-      annotations: externalDocumentUpdate.of(true),
-      changes: {
-        from: 0,
-        to: this.view.state.doc.length,
-        insert: source,
-      },
-    });
-
-    return true;
-  }
-
-  dispose(): void {
-    if (this.disposed) {
-      return;
-    }
-
-    this.disposed = true;
-    this.view.destroy();
-  }
-}
-
-export function shouldPublishEditorUpdate(
-  transactions: readonly Transaction[]
-): boolean {
-  return transactions.some(
-    (transaction) =>
-      transaction.docChanged &&
-      transaction.annotation(externalDocumentUpdate) !== true
-  );
-}
 
 export function codeCellLanguage(metadata: Metadata): CellEditorLanguage {
   const kernelspec = record(metadata.kernelspec);

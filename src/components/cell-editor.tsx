@@ -1,8 +1,4 @@
-import {
-  type CellEditorLanguage,
-  EditorDocumentController,
-  shouldPublishEditorUpdate,
-} from '@/lib/editor';
+import type { CellEditorLanguage } from '@/lib/editor';
 import { defaultKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { python } from '@codemirror/lang-python';
@@ -33,7 +29,6 @@ interface CellEditorProps {
 
 interface MountedEditor {
   configuration: Compartment;
-  controller: EditorDocumentController;
   view: EditorView;
 }
 
@@ -134,26 +129,21 @@ export function CellEditor({
           baseExtensions,
           configuration.of(editorConfiguration(language, ariaLabel)),
           EditorView.updateListener.of((update) => {
-            if (shouldPublishEditorUpdate(update.transactions)) {
+            if (update.docChanged) {
               onChangeRef.current(update.state.doc.toString());
             }
           }),
         ],
       }),
     });
-    const controller = new EditorDocumentController(view);
 
-    mounted.current = { configuration, controller, view };
+    mounted.current = { configuration, view };
 
     return () => {
       mounted.current = null;
-      controller.dispose();
+      view.destroy();
     };
   }, []);
-
-  useEffect(() => {
-    mounted.current?.controller.synchronize(source);
-  }, [source]);
 
   useEffect(() => {
     const editor = mounted.current;

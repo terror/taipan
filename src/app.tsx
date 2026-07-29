@@ -15,12 +15,13 @@ import {
 } from '@/lib/execution';
 import {
   type NotebookSession,
-  applyTransaction,
+  commitCellExecution,
   createNotebookSession,
   isCodeCell,
   isMarkdownCell,
   markNotebookSaved,
   openNotebook,
+  replaceCellSource,
   saveNotebook,
   sessionCells,
   sourceText,
@@ -97,18 +98,12 @@ export function App() {
 
     setSession((current) =>
       current?.documentId === execution.documentId
-        ? applyTransaction(current, [
-            {
-              type: 'replace-outputs',
-              cell: execution.cellId,
-              outputs: execution.outputs,
-            },
-            {
-              type: 'set-execution-count',
-              cell: execution.cellId,
-              executionCount: execution.executionCount,
-            },
-          ])
+        ? commitCellExecution(
+            current,
+            execution.cellId,
+            execution.outputs,
+            execution.executionCount
+          )
         : current
     );
     setExecution((current) =>
@@ -357,13 +352,7 @@ export function App() {
                           onChange={(source) =>
                             setSession((current) =>
                               current
-                                ? applyTransaction(current, [
-                                    {
-                                      type: 'replace-source',
-                                      cell: identity,
-                                      source,
-                                    },
-                                  ])
+                                ? replaceCellSource(current, identity, source)
                                 : current
                             )
                           }
@@ -379,13 +368,7 @@ export function App() {
                           onChange={(source) =>
                             setSession((current) =>
                               current
-                                ? applyTransaction(current, [
-                                    {
-                                      type: 'replace-source',
-                                      cell: identity,
-                                      source,
-                                    },
-                                  ])
+                                ? replaceCellSource(current, identity, source)
                                 : current
                             )
                           }
