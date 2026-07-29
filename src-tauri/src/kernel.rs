@@ -904,12 +904,12 @@ async fn shutdown_kernel(
       event = control_events.recv() => {
         if let (Some(request), Some(TransportEvent::Message(reply))) =
           (&request, event)
-          && reply.envelope.header.msg_type == MessageType::from("shutdown_reply")
+          && reply.header.msg_type == MessageType::from("shutdown_reply")
           && matches!(
-            &reply.envelope.parent_header,
+            &reply.parent_header,
             ParentHeader::Header(parent) if parent.msg_id == *request
           )
-          && reply.envelope.content.get("restart").and_then(Value::as_bool)
+          && reply.content.get("restart").and_then(Value::as_bool)
             == Some(false)
         {
           shutdown_replied = true;
@@ -1010,7 +1010,7 @@ async fn supervise_kernel(
             }
             Some(
               TransportEvent::Heartbeat(_)
-              | TransportEvent::Error { .. }
+              | TransportEvent::Error(_)
               | TransportEvent::Message(_),
             )
             | None => {
@@ -1024,9 +1024,8 @@ async fn supervise_kernel(
         event = channels.iopub_events.recv() => {
           match event {
             Some(TransportEvent::Message(message)) => {
-              if message.envelope.header.msg_type == MessageType::from("status") {
+              if message.header.msg_type == MessageType::from("status") {
                 execution_state = match message
-                  .envelope
                   .content
                   .get("execution_state")
                   .and_then(Value::as_str)
@@ -1045,17 +1044,17 @@ async fn supervise_kernel(
                 id,
                 &mut active_execution,
                 &events,
-                &message.envelope,
+                &message,
               );
               SupervisorEvent::Continue
             }
-            Some(TransportEvent::Error { .. } | TransportEvent::Heartbeat(_))
+            Some(TransportEvent::Error(_) | TransportEvent::Heartbeat(_))
             | None => SupervisorEvent::Failed,
           }
         }
         event = channels.control_events.recv() => match event {
           Some(TransportEvent::Message(_)) => SupervisorEvent::Continue,
-          Some(TransportEvent::Error { .. } | TransportEvent::Heartbeat(_))
+          Some(TransportEvent::Error(_) | TransportEvent::Heartbeat(_))
           | None => SupervisorEvent::Failed,
         },
         event = channels.shell_events.recv() => match event {
@@ -1064,11 +1063,11 @@ async fn supervise_kernel(
               id,
               &mut active_execution,
               &events,
-              &message.envelope,
+              &message,
             );
             SupervisorEvent::Continue
           }
-          Some(TransportEvent::Error { .. } | TransportEvent::Heartbeat(_))
+          Some(TransportEvent::Error(_) | TransportEvent::Heartbeat(_))
           | None => SupervisorEvent::Failed,
         },
         _ = process.tick() => match child.try_wait() {
@@ -1324,7 +1323,7 @@ async fn establish_readiness(
         Some(TransportEvent::Heartbeat(_)) => {
           return Err("heartbeat reply did not match probe".into());
         }
-        Some(TransportEvent::Error { error, .. }) => {
+        Some(TransportEvent::Error(error)) => {
           return Err(error.to_string());
         }
         Some(TransportEvent::Message(_)) => {
@@ -1334,7 +1333,7 @@ async fn establish_readiness(
       },
       event = channels.shell_events.recv() => match event {
         Some(TransportEvent::Message(message)) => {
-          let envelope = &message.envelope;
+          let envelope = &message;
 
           if envelope.header.msg_type == MessageType::from("kernel_info_reply")
             && correlated(envelope, &requests)
@@ -1343,7 +1342,7 @@ async fn establish_readiness(
             info_ready = true;
           }
         }
-        Some(TransportEvent::Error { error, .. }) => {
+        Some(TransportEvent::Error(error)) => {
           return Err(error.to_string());
         }
         Some(TransportEvent::Heartbeat(_)) => {
@@ -1353,7 +1352,7 @@ async fn establish_readiness(
       },
       event = channels.iopub_events.recv() => match event {
         Some(TransportEvent::Message(message)) => {
-          let envelope = &message.envelope;
+          let envelope = &message;
 
           if valid_iopub_welcome(envelope)
             || valid_correlated_status(envelope, &requests)
@@ -1361,7 +1360,7 @@ async fn establish_readiness(
             iopub_ready = true;
           }
         }
-        Some(TransportEvent::Error { error, .. }) => {
+        Some(TransportEvent::Error(error)) => {
           return Err(error.to_string());
         }
         Some(TransportEvent::Heartbeat(_)) => {
