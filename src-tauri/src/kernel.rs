@@ -1,58 +1,4 @@
-use {
-  crate::{
-    channel::{
-      ChannelDriver, DriverConfig, HeartbeatDriver, TransportError,
-      TransportEvent,
-    },
-    wire::{
-      Channel, Envelope, Header, JsonObject, MessageType, ParentHeader,
-      WireError, WireProtocol,
-    },
-  },
-  chrono::{SecondsFormat, Utc},
-  serde::{Deserialize, Serialize},
-  serde_json::Value,
-  std::{
-    collections::{BTreeMap, BTreeSet},
-    env,
-    ffi::{OsStr, OsString},
-    fmt,
-    io::{self, Write},
-    net::{Ipv4Addr, TcpListener},
-    path::{Path, PathBuf},
-    process::{ExitStatus, Stdio},
-    sync::{Arc, Mutex},
-    time::Duration,
-  },
-  tempfile::{Builder, NamedTempFile},
-  thiserror::Error,
-  tokio::{
-    io::{AsyncRead, AsyncReadExt},
-    process::{Child, Command},
-    sync::{mpsc, oneshot, watch},
-    task::JoinHandle,
-    time::{self, Instant},
-  },
-  uuid::Uuid,
-};
-
-#[cfg(unix)]
-use nix::{
-  errno::Errno,
-  sys::signal::{Signal, killpg},
-  unistd::Pid,
-};
-
-#[cfg(windows)]
-use windows_sys::Win32::{
-  Foundation::{CloseHandle, HANDLE},
-  System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW,
-    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JobObjectExtendedLimitInformation, SetInformationJobObject,
-    TerminateJobObject,
-  },
-};
+use super::*;
 
 const CONNECTION_FILE: &str = "{connection_file}";
 
@@ -257,18 +203,18 @@ pub enum ExecutionMessage {
   },
   ExecuteInput {
     code: String,
-    execution_count: typeshare::U53,
+    execution_count: U53,
   },
   ExecuteReply {
     ename: Option<String>,
     evalue: Option<String>,
-    execution_count: typeshare::U53,
+    execution_count: U53,
     status: String,
     traceback: Option<Vec<String>>,
   },
   ExecuteResult {
     data: JsonObject,
-    execution_count: typeshare::U53,
+    execution_count: U53,
     metadata: JsonObject,
   },
   Status {
@@ -885,14 +831,14 @@ struct ErrorContent {
 #[derive(Deserialize)]
 struct ExecuteInputContent {
   code: String,
-  execution_count: typeshare::U53,
+  execution_count: U53,
 }
 
 #[derive(Deserialize)]
 struct ExecuteReplyContent {
   ename: Option<String>,
   evalue: Option<String>,
-  execution_count: typeshare::U53,
+  execution_count: U53,
   status: String,
   traceback: Option<Vec<String>>,
 }
@@ -900,7 +846,7 @@ struct ExecuteReplyContent {
 #[derive(Deserialize)]
 struct ExecuteResultContent {
   data: JsonObject,
-  execution_count: typeshare::U53,
+  execution_count: U53,
   metadata: JsonObject,
 }
 
@@ -2221,14 +2167,7 @@ impl Drop for WindowsJob {
 
 #[cfg(test)]
 mod tests {
-  use {
-    super::*,
-    std::{fs, process::Command as StdCommand},
-    zeromq::{
-      RepSocket, RouterSocket, Socket, SocketRecv, SocketSend, XPubSocket,
-      ZmqMessage,
-    },
-  };
+  use super::*;
 
   #[derive(Clone, Copy, Eq, PartialEq)]
   enum MockBehavior {
@@ -2962,7 +2901,7 @@ mod tests {
     let reply = || ExecutionMessage::ExecuteReply {
       ename: None,
       evalue: None,
-      execution_count: typeshare::U53::from(7_u8),
+      execution_count: U53::from(7_u8),
       status: "ok".into(),
       traceback: None,
     };
@@ -3020,7 +2959,7 @@ mod tests {
           .as_object()
           .unwrap()
           .clone(),
-        execution_count: typeshare::U53::from(7_u8),
+        execution_count: U53::from(7_u8),
         metadata: JsonObject::new(),
       },
     );
@@ -3042,7 +2981,7 @@ mod tests {
       &serde_json::json!({"code": "foo", "execution_count": 7}),
       ExecutionMessage::ExecuteInput {
         code: "foo".into(),
-        execution_count: typeshare::U53::from(7_u8),
+        execution_count: U53::from(7_u8),
       },
     );
     case(
@@ -3058,7 +2997,7 @@ mod tests {
       ExecutionMessage::ExecuteReply {
         ename: None,
         evalue: None,
-        execution_count: typeshare::U53::from(7_u8),
+        execution_count: U53::from(7_u8),
         status: "ok".into(),
         traceback: None,
       },
