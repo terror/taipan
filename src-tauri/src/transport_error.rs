@@ -8,8 +8,6 @@ pub enum TransportError {
   Decode(#[source] WireError),
   #[error("ZeroMQ peer disconnected")]
   Disconnected,
-  #[error("ZeroMQ message cannot be empty")]
-  EmptyMessage,
   #[error("failed to encode Jupyter message: {0}")]
   Encode(#[source] WireError),
   #[error("frame is {actual} bytes, maximum is {maximum}")]
