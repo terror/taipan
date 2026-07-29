@@ -477,8 +477,6 @@ pub struct KernelChannels {
   pub iopub_events: mpsc::Receiver<TransportEvent>,
   pub shell: ChannelDriver,
   pub shell_events: mpsc::Receiver<TransportEvent>,
-  pub stdin: ChannelDriver,
-  pub stdin_events: mpsc::Receiver<TransportEvent>,
 }
 
 impl KernelChannels {
@@ -487,7 +485,6 @@ impl KernelChannels {
     self.heartbeat.cancel();
     self.iopub.cancel();
     self.shell.cancel();
-    self.stdin.cancel();
   }
 
   async fn connect(
@@ -512,13 +509,6 @@ impl KernelChannels {
     let (control, control_events) = ChannelDriver::connect(
       Channel::Control,
       &connection.endpoint(Channel::Control),
-      protocol.clone(),
-      config.clone(),
-    )
-    .await?;
-    let (stdin, stdin_events) = ChannelDriver::connect(
-      Channel::Stdin,
-      &connection.endpoint(Channel::Stdin),
       protocol,
       config.clone(),
     )
@@ -538,8 +528,6 @@ impl KernelChannels {
       iopub_events,
       shell,
       shell_events,
-      stdin,
-      stdin_events,
     })
   }
 
@@ -553,22 +541,18 @@ impl KernelChannels {
       iopub_events: _,
       shell,
       shell_events: _,
-      stdin,
-      stdin_events: _,
     } = self;
 
     control.cancel();
     heartbeat.cancel();
     iopub.cancel();
     shell.cancel();
-    stdin.cancel();
 
     let _ = tokio::join!(
       control.shutdown(),
       heartbeat.shutdown(),
       iopub.shutdown(),
       shell.shutdown(),
-      stdin.shutdown(),
     );
   }
 }
@@ -1224,11 +1208,6 @@ async fn supervise_kernel(
             );
             SupervisorEvent::Continue
           }
-          Some(TransportEvent::Error { .. } | TransportEvent::Heartbeat(_))
-          | None => SupervisorEvent::Failed,
-        },
-        event = channels.stdin_events.recv() => match event {
-          Some(TransportEvent::Message(_)) => SupervisorEvent::Continue,
           Some(TransportEvent::Error { .. } | TransportEvent::Heartbeat(_))
           | None => SupervisorEvent::Failed,
         },
@@ -2216,13 +2195,11 @@ mod tests {
     let mut heartbeat = RepSocket::new();
     let mut iopub = XPubSocket::new();
     let mut shell = RouterSocket::new();
-    let mut stdin = RouterSocket::new();
 
     bind_mock(&mut control, &connection.endpoint(Channel::Control)).await;
     bind_mock(&mut heartbeat, &connection.endpoint(Channel::Heartbeat)).await;
     bind_mock(&mut iopub, &connection.endpoint(Channel::Iopub)).await;
     bind_mock(&mut shell, &connection.endpoint(Channel::Shell)).await;
-    bind_mock(&mut stdin, &connection.endpoint(Channel::Stdin)).await;
 
     let _child = env::var_os("MOCK_CHILD_FILE").map(|path| {
       let child = StdCommand::new("sleep").arg("60").spawn().unwrap();
@@ -2389,9 +2366,6 @@ mod tests {
               .await
               .unwrap();
           }
-        }
-        request = stdin.recv() => {
-          request.unwrap();
         }
       }
     }
