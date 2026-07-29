@@ -15,7 +15,7 @@ use {
     collections::{BTreeMap, BTreeSet},
     env,
     ffi::{OsStr, OsString},
-    fmt,
+    fmt::{self, Display, Formatter},
     fs::{self, File},
     io::{self, BufReader, BufWriter, Write},
     net::{Ipv4Addr, TcpListener},

@@ -16,8 +16,8 @@ pub enum Channel {
   Stdin,
 }
 
-impl fmt::Display for Channel {
-  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for Channel {
+  fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
     formatter.write_str(match self {
       Self::Control => "control",
       Self::Heartbeat => "heartbeat",
@@ -61,8 +61,8 @@ pub enum JsonFrame {
   ParentHeader,
 }
 
-impl fmt::Display for JsonFrame {
-  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for JsonFrame {
+  fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
     formatter.write_str(match self {
       Self::Content => "content",
       Self::Header => "header",
@@ -90,8 +90,8 @@ pub struct Header {
 #[serde(transparent)]
 pub struct MessageType(pub String);
 
-impl fmt::Display for MessageType {
-  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for MessageType {
+  fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
     formatter.write_str(&self.0)
   }
 }

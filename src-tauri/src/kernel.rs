@@ -135,8 +135,8 @@ pub enum LaunchError {
 #[serde(transparent)]
 pub struct KernelId(Uuid);
 
-impl fmt::Display for KernelId {
-  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Display for KernelId {
+  fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
     self.0.fmt(formatter)
   }
 }
