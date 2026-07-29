@@ -16,7 +16,7 @@ export function KernelSelector({ onSelection }: KernelSelectorProps) {
   const [discovery, setDiscovery] = useState<KernelDiscovery | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLaunching, setIsLaunching] = useState(false);
-  const [selectedId, setSelectedId] = useState('');
+  const [selectedName, setSelectedName] = useState('');
   const selectionChanged = useEffectEvent(onSelection);
 
   async function activateKernel(name: string | null) {
@@ -26,7 +26,7 @@ export function KernelSelector({ onSelection }: KernelSelectorProps) {
     try {
       selectionChanged(await selectKernel(name));
     } catch (cause) {
-      setSelectedId('');
+      setSelectedName('');
       selectionChanged(null);
       setError(errorMessage(cause));
     } finally {
@@ -56,13 +56,9 @@ export function KernelSelector({ onSelection }: KernelSelectorProps) {
     };
   }, []);
 
-  async function select(selectedId: string) {
-    const kernel = discovery?.kernels.find(
-      (kernel) => kernel.id === selectedId
-    );
-
-    setSelectedId(selectedId);
-    await activateKernel(kernel?.name ?? null);
+  async function select(name: string) {
+    setSelectedName(name);
+    await activateKernel(name || null);
   }
 
   const diagnostics = discovery?.diagnostics ?? [];
@@ -84,7 +80,7 @@ export function KernelSelector({ onSelection }: KernelSelectorProps) {
           <select
             className='h-6 max-w-40 min-w-0 cursor-pointer appearance-none bg-transparent py-0 pr-7 pl-1.5 text-xs font-medium outline-none disabled:cursor-default sm:max-w-52 dark:bg-zinc-900'
             aria-label='Notebook kernel'
-            value={selectedId}
+            value={selectedName}
             disabled={
               isLaunching || !discovery || discovery.kernels.length === 0
             }
@@ -98,7 +94,7 @@ export function KernelSelector({ onSelection }: KernelSelectorProps) {
               <>
                 <option value=''>No kernel selected</option>
                 {discovery.kernels.map((kernel) => (
-                  <option key={kernel.id} value={kernel.id}>
+                  <option key={kernel.name} value={kernel.name}>
                     {kernel.display_name} ({kernel.source})
                   </option>
                 ))}

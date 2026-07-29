@@ -54,8 +54,6 @@ export interface KernelDiagnostic {
 
 export interface KernelSummary {
   display_name: string;
-  id: string;
-  language: string;
   name: string;
   source: string;
 }
