@@ -47,10 +47,7 @@ use {
 };
 
 pub use {
-  channel::{
-    ChannelDriver, ChannelMessage, DriverConfig, HeartbeatDriver,
-    TransportEvent,
-  },
+  channel::{ChannelDriver, DriverConfig, HeartbeatDriver, TransportEvent},
   kernel::{
     CellId, ConnectionData, DocumentId, ExecutionEvent, ExecutionId,
     ExecutionMessage, ExecutionRequest, ExecutionState, KernelChannels,

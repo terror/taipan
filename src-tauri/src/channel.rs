@@ -1,11 +1,5 @@
 use super::*;
 
-#[derive(Debug)]
-pub struct ChannelMessage {
-  pub channel: Channel,
-  pub envelope: Envelope,
-}
-
 pub struct ChannelDriver {
   cancellation: watch::Sender<bool>,
   channel: Channel,
@@ -52,7 +46,6 @@ impl ChannelDriver {
         socket.subscribe("").await.map_err(connect_error)?;
 
         tokio::spawn(run_subscriber(
-          channel,
           config.clone(),
           protocol.clone(),
           socket,
@@ -72,7 +65,6 @@ impl ChannelDriver {
 
         tokio::spawn(run_dealer(DealerTask {
           cancelled,
-          channel,
           commands: command_receiver,
           config: config.clone(),
           events,
@@ -270,17 +262,13 @@ impl Drop for HeartbeatDriver {
 
 #[derive(Debug)]
 pub enum TransportEvent {
-  Error {
-    channel: Channel,
-    error: TransportError,
-  },
+  Error(TransportError),
   Heartbeat(Vec<u8>),
-  Message(Box<ChannelMessage>),
+  Message(Box<Envelope>),
 }
 
 struct DealerTask {
   cancelled: watch::Receiver<bool>,
-  channel: Channel,
   commands: mpsc::Receiver<ZmqMessage>,
   config: DriverConfig,
   events: mpsc::Sender<TransportEvent>,
@@ -319,7 +307,6 @@ async fn emit(
 }
 
 async fn emit_message(
-  channel: Channel,
   config: &DriverConfig,
   protocol: &WireProtocol,
   message: ZmqMessage,
@@ -329,10 +316,8 @@ async fn emit_message(
   let event = match message_to_frames(message, config)
     .and_then(|frames| protocol.decode(&frames).map_err(decode_error))
   {
-    Ok(envelope) => {
-      TransportEvent::Message(Box::new(ChannelMessage { channel, envelope }))
-    }
-    Err(error) => TransportEvent::Error { channel, error },
+    Ok(envelope) => TransportEvent::Message(Box::new(envelope)),
+    Err(error) => TransportEvent::Error(error),
   };
 
   emit(events, cancelled, event).await
@@ -379,7 +364,6 @@ fn receive_error(error: ZmqError) -> TransportError {
 async fn run_dealer(task: DealerTask) {
   let DealerTask {
     mut cancelled,
-    channel,
     mut commands,
     config,
     events,
@@ -406,10 +390,7 @@ async fn run_dealer(task: DealerTask) {
         };
 
         if let Err(error) = result {
-          let error = TransportEvent::Error {
-            channel,
-            error: send_error(error),
-          };
+          let error = TransportEvent::Error(send_error(error));
 
           emit(&events, &mut cancelled, error).await;
 
@@ -419,7 +400,6 @@ async fn run_dealer(task: DealerTask) {
       result = receiver.recv() => match result {
         Ok(message) => {
           if !emit_message(
-            channel,
             &config,
             &protocol,
             message,
@@ -430,10 +410,7 @@ async fn run_dealer(task: DealerTask) {
           }
         }
         Err(error) => {
-          let error = TransportEvent::Error {
-            channel,
-            error: receive_error(error),
-          };
+          let error = TransportEvent::Error(receive_error(error));
 
           emit(&events, &mut cancelled, error).await;
 
@@ -442,10 +419,7 @@ async fn run_dealer(task: DealerTask) {
       },
       event = monitor.next(), if monitoring => match event {
         Some(SocketEvent::Closed | SocketEvent::Disconnected(_)) => {
-          let error = TransportEvent::Error {
-            channel,
-            error: TransportError::Disconnected,
-          };
+          let error = TransportEvent::Error(TransportError::Disconnected);
 
           emit(&events, &mut cancelled, error).await;
 
@@ -466,8 +440,6 @@ async fn run_heartbeat(
   events: mpsc::Sender<TransportEvent>,
   mut cancelled: watch::Receiver<bool>,
 ) {
-  let channel = Channel::Heartbeat;
-
   let mut monitoring = true;
 
   loop {
@@ -483,10 +455,7 @@ async fn run_heartbeat(
       }
       event = monitor.next(), if monitoring => match event {
         Some(SocketEvent::Closed | SocketEvent::Disconnected(_)) => {
-          let error = TransportEvent::Error {
-            channel,
-            error: TransportError::Disconnected,
-          };
+          let error = TransportEvent::Error(TransportError::Disconnected);
 
           emit(&events, &mut cancelled, error).await;
 
@@ -507,10 +476,7 @@ async fn run_heartbeat(
     };
 
     if let Err(error) = result {
-      let error = TransportEvent::Error {
-        channel,
-        error: send_error(error),
-      };
+      let error = TransportEvent::Error(send_error(error));
 
       emit(&events, &mut cancelled, error).await;
 
@@ -524,32 +490,24 @@ async fn run_heartbeat(
     };
 
     let event = match result {
-      Err(_) => TransportEvent::Error {
-        channel,
-        error: TransportError::Timeout(config.heartbeat_timeout),
-      },
-      Ok(Err(error)) => TransportEvent::Error {
-        channel,
-        error: receive_error(error),
-      },
+      Err(_) => {
+        TransportEvent::Error(TransportError::Timeout(config.heartbeat_timeout))
+      }
+      Ok(Err(error)) => TransportEvent::Error(receive_error(error)),
       Ok(Ok(message)) => match message_to_frames(message, &config) {
         Ok(frames) if frames == [ping.clone()] => {
           TransportEvent::Heartbeat(ping)
         }
-        Ok(_) => TransportEvent::Error {
-          channel,
-          error: TransportError::HeartbeatMismatch,
-        },
-        Err(error) => TransportEvent::Error { channel, error },
+        Ok(_) => TransportEvent::Error(TransportError::HeartbeatMismatch),
+        Err(error) => TransportEvent::Error(error),
       },
     };
 
     let stop = matches!(
       event,
-      TransportEvent::Error {
-        error: TransportError::Disconnected | TransportError::Timeout(_),
-        ..
-      }
+      TransportEvent::Error(
+        TransportError::Disconnected | TransportError::Timeout(_)
+      )
     );
 
     if !emit(&events, &mut cancelled, event).await || stop {
@@ -559,7 +517,6 @@ async fn run_heartbeat(
 }
 
 async fn run_subscriber(
-  channel: Channel,
   config: DriverConfig,
   protocol: Arc<WireProtocol>,
   mut socket: SubSocket,
@@ -576,7 +533,6 @@ async fn run_subscriber(
       result = socket.recv() => match result {
         Ok(message) => {
           if !emit_message(
-            channel,
             &config,
             &protocol,
             message,
@@ -587,10 +543,7 @@ async fn run_subscriber(
           }
         }
         Err(error) => {
-          let error = TransportEvent::Error {
-            channel,
-            error: receive_error(error),
-          };
+          let error = TransportEvent::Error(receive_error(error));
 
           emit(&events, &mut cancelled, error).await;
 
@@ -599,10 +552,7 @@ async fn run_subscriber(
       },
       event = monitor.next(), if monitoring => match event {
         Some(SocketEvent::Closed | SocketEvent::Disconnected(_)) => {
-          let error = TransportEvent::Error {
-            channel,
-            error: TransportError::Disconnected,
-          };
+          let error = TransportEvent::Error(TransportError::Disconnected);
 
           emit(&events, &mut cancelled, error).await;
 
@@ -804,7 +754,7 @@ mod tests {
     else {
       panic!("expected message event");
     };
-    assert_eq!(message.channel, Channel::Stdin);
+    assert!(message.identities.is_empty());
 
     shell.shutdown().await.unwrap();
     stdin.shutdown().await.unwrap();
@@ -843,9 +793,8 @@ mod tests {
         panic!("expected message event");
       };
 
-      assert_eq!(message.channel, channel);
-      assert_eq!(message.envelope.buffers, envelope().buffers);
-      assert_eq!(message.envelope.identities, [b"bar".to_vec()]);
+      assert_eq!(message.buffers, envelope().buffers);
+      assert_eq!(message.identities, [b"bar".to_vec()]);
 
       driver.shutdown().await.unwrap();
     }
@@ -874,10 +823,7 @@ mod tests {
 
     assert!(matches!(
       event(&mut events).await,
-      TransportEvent::Error {
-        channel: Channel::Shell,
-        error: TransportError::Disconnected,
-      }
+      TransportEvent::Error(TransportError::Disconnected)
     ));
 
     driver.shutdown().await.unwrap();
@@ -926,10 +872,7 @@ mod tests {
 
     assert!(matches!(
       event(&mut events).await,
-      TransportEvent::Error {
-        channel: Channel::Heartbeat,
-        error: TransportError::Timeout(_),
-      }
+      TransportEvent::Error(TransportError::Timeout(_))
     ));
 
     driver.shutdown().await.unwrap();
@@ -963,9 +906,8 @@ mod tests {
       panic!("expected message event");
     };
 
-    assert_eq!(received.channel, Channel::Iopub);
-    assert_eq!(received.envelope.identities, [b"bar".to_vec()]);
-    assert_eq!(received.envelope.buffers, envelope().buffers);
+    assert_eq!(received.identities, [b"bar".to_vec()]);
+    assert_eq!(received.buffers, envelope().buffers);
 
     driver.shutdown().await.unwrap();
   }
@@ -995,10 +937,9 @@ mod tests {
 
     assert!(matches!(
       event(&mut events).await,
-      TransportEvent::Error {
-        channel: Channel::Shell,
-        error: TransportError::Decode(WireError::MissingDelimiter),
-      }
+      TransportEvent::Error(TransportError::Decode(
+        WireError::MissingDelimiter
+      ))
     ));
 
     let mut message = envelope();
@@ -1010,10 +951,7 @@ mod tests {
 
     assert!(matches!(
       event(&mut events).await,
-      TransportEvent::Error {
-        channel: Channel::Shell,
-        error: TransportError::Signature(_),
-      }
+      TransportEvent::Error(TransportError::Signature(_))
     ));
 
     driver.shutdown().await.unwrap();
@@ -1068,13 +1006,10 @@ mod tests {
 
     assert!(matches!(
       event(&mut events).await,
-      TransportEvent::Error {
-        channel: Channel::Shell,
-        error: TransportError::TooManyFrames {
-          actual: 9,
-          maximum: 8,
-        },
-      }
+      TransportEvent::Error(TransportError::TooManyFrames {
+        actual: 9,
+        maximum: 8,
+      })
     ));
 
     driver.shutdown().await.unwrap();
