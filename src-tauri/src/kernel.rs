@@ -604,8 +604,7 @@ impl LocalKernel {
     let connection_file = write_connection_file(&connection, &config)?;
     let argv = substitute_argv(&spec.argv, connection_file.path());
     let inherited = env::vars_os().collect::<BTreeMap<_, _>>();
-    let base = sanitized_environment(&inherited);
-    let mut environment = expand_environment(&base, &spec.env)?;
+    let mut environment = expand_environment(&inherited, &spec.env)?;
 
     #[cfg(test)]
     environment.insert(
@@ -616,13 +615,8 @@ impl LocalKernel {
     if spec.language.to_ascii_lowercase().starts_with("python") {
       environment.remove(OsStr::new("PYTHONEXECUTABLE"));
     }
-    let redactor = Redactor::new(
-      &spec,
-      &inherited,
-      &environment,
-      &connection,
-      connection_file.path(),
-    );
+    let redactor =
+      Redactor::new(&spec, &inherited, &connection, connection_file.path());
     let capture = Arc::new(Mutex::new(StartupCapture::new(
       config.max_startup_output_bytes,
       redactor.maximum_value_length(),
@@ -1548,7 +1542,6 @@ impl Redactor {
   fn new(
     spec: &KernelLaunchSpec,
     inherited: &BTreeMap<OsString, OsString>,
-    environment: &BTreeMap<OsString, OsString>,
     connection: &ConnectionData,
     connection_file: &Path,
   ) -> Self {
@@ -1567,12 +1560,6 @@ impl Redactor {
 
     for name in ["HOME", "USERPROFILE"] {
       if let Some(value) = inherited.get(OsStr::new(name)) {
-        values.push(value.to_string_lossy().into_owned());
-      }
-    }
-
-    for (name, value) in inherited.iter().chain(environment) {
-      if secret_name(name) {
         values.push(value.to_string_lossy().into_owned());
       }
     }
@@ -1857,55 +1844,6 @@ fn expand_environment_value(
   }
 
   Ok(expanded.into())
-}
-
-fn sanitized_environment(
-  inherited: &BTreeMap<OsString, OsString>,
-) -> BTreeMap<OsString, OsString> {
-  inherited
-    .iter()
-    .filter(|(name, _)| !secret_name(name))
-    .map(|(name, value)| (name.clone(), value.clone()))
-    .collect()
-}
-
-fn secret_name(name: &OsStr) -> bool {
-  let name = name.to_string_lossy().to_ascii_uppercase();
-
-  if name.starts_with("TAIPAN_") {
-    return true;
-  }
-
-  let compact = name
-    .chars()
-    .filter(char::is_ascii_alphanumeric)
-    .collect::<String>();
-  let words = name
-    .split(|character: char| !character.is_ascii_alphanumeric())
-    .filter(|word| !word.is_empty())
-    .collect::<Vec<_>>();
-  [
-    "COOKIE",
-    "CREDENTIAL",
-    "PASSWORD",
-    "PASSWD",
-    "SECRET",
-    "TOKEN",
-  ]
-  .into_iter()
-  .any(|sensitive| compact.contains(sensitive))
-    || compact.contains("AUTHORIZATION")
-    || compact.ends_with("PAT")
-    || compact.ends_with("PWD")
-    || compact.contains("APIKEY")
-    || compact.contains("ACCESSKEY")
-    || compact.contains("CONNECTIONSTRING")
-    || compact.contains("PRIVATEKEY")
-    || matches!(compact.as_str(), "DATABASEURL" | "KUBECONFIG" | "NETRC")
-    || words.contains(&"AUTH")
-    || words
-      .last()
-      .is_some_and(|word| matches!(*word, "DSN" | "PROXY" | "URI" | "URL"))
 }
 
 fn send_kernel_info(
@@ -2811,8 +2749,8 @@ mod tests {
   }
 
   #[test]
-  fn environment_expands_against_base_then_overrides() {
-    let base = sanitized_environment(&base_environment());
+  fn environment_inherits_base_then_expands_overrides() {
+    let base = base_environment();
     let overrides = [
       ("BAR".into(), "${FOO}/bar".into()),
       ("FOO".into(), "override".into()),
@@ -2826,6 +2764,7 @@ mod tests {
     assert_eq!(environment[OsStr::new("FOO")], "override");
     assert_eq!(environment[OsStr::new("LITERAL")], "$FOO");
     assert_eq!(environment[OsStr::new("PATH")], "/foo/bin");
+    assert_eq!(environment[OsStr::new("TAIPAN_SECRET")], "bar");
   }
 
   #[test]
@@ -2862,30 +2801,6 @@ mod tests {
 
     assert!(matches!(result, Err(LaunchError::Startup { .. })));
     assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
-  }
-
-  #[test]
-  fn inherited_application_secrets_are_excluded() {
-    let inherited = [
-      ("AWS_SECRET_ACCESS_KEY", "foo"),
-      ("CLIENT_SECRET", "foo"),
-      ("GITHUB_TOKEN", "foo"),
-      ("PASSWORD", "foo"),
-      ("PATH", "/foo/bin"),
-      ("READONLY_DATABASE_URL", "foo"),
-      ("SENTRY_DSN", "foo"),
-      ("SHELL", "/bin/foo"),
-      ("TAIPAN_CONFIGURATION", "foo"),
-    ]
-    .into_iter()
-    .map(|(name, value)| (name.into(), value.into()))
-    .collect();
-    let environment = sanitized_environment(&inherited);
-
-    assert_eq!(
-      environment.keys().collect::<Vec<_>>(),
-      [OsStr::new("PATH"), OsStr::new("SHELL")]
-    );
   }
 
   fn execution_request() -> ExecutionRequest {
@@ -3046,7 +2961,6 @@ mod tests {
     };
     let redactor = Redactor::new(
       &spec,
-      &BTreeMap::new(),
       &BTreeMap::new(),
       &connection,
       Path::new("/private/foo.json"),
