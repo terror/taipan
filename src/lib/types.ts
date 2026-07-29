@@ -63,7 +63,6 @@ export interface KernelSummary {
 export interface KernelDiscovery {
   diagnostics: KernelDiagnostic[];
   kernels: KernelSummary[];
-  recommended_id?: string;
 }
 
 export interface MarkdownCell {

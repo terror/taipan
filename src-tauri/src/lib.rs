@@ -6,7 +6,7 @@ use {
   hmac::{Hmac, KeyInit, Mac},
   kernel_source::KernelSource,
   kernelspec::{KernelDiscovery, KernelSpecManager},
-  notebook::{Metadata, Notebook},
+  notebook::Notebook,
   search_root::SearchRoot,
   serde::{Deserialize, Serialize, Serializer, de},
   serde_json::{Map, Value},
@@ -23,7 +23,7 @@ use {
     process::{ExitStatus, Stdio},
     str::FromStr,
     sync::{
-      Arc, Mutex,
+      Arc,
       atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -32,7 +32,6 @@ use {
   tempfile::{Builder, NamedTempFile},
   thiserror::Error,
   tokio::{
-    io::{AsyncRead, AsyncReadExt},
     process::{Child, Command},
     sync::{mpsc, oneshot, watch},
     task::{JoinError, JoinHandle},
@@ -57,7 +56,6 @@ pub use {
     ExecutionMessage, ExecutionRequest, ExecutionState, KernelChannels,
     KernelId, KernelInfo, KernelLaunchSpec, KernelState, LaunchConfig,
     LaunchError, LocalKernel, LocalKernelManager, ManagerConfig, ManagerError,
-    StartupOutput,
   },
   platform::Platform,
   wire::{
@@ -230,14 +228,10 @@ async fn execute_cell(
 }
 
 #[tauri::command]
-async fn discover_kernelspecs(
-  metadata: notebook::Metadata,
-) -> Result<KernelDiscovery> {
-  tauri::async_runtime::spawn_blocking(move || {
-    kernelspec::KernelSpecManager::discover(&metadata)
-  })
-  .await
-  .map_err(Error::Task)
+async fn discover_kernelspecs() -> Result<KernelDiscovery> {
+  tauri::async_runtime::spawn_blocking(kernelspec::KernelSpecManager::discover)
+    .await
+    .map_err(Error::Task)
 }
 
 /// # Panics

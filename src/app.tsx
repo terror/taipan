@@ -277,7 +277,6 @@ export function App() {
                   </p>
                   <KernelSelector
                     key={session.documentId}
-                    metadata={session.notebook.metadata}
                     onSelection={setKernel}
                   />
                   <span
