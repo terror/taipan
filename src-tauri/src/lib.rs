@@ -1,22 +1,3 @@
-pub use {
-  channel::{
-    ChannelDriver, ChannelMessage, DriverConfig, HeartbeatDriver,
-    TransportError, TransportEvent,
-  },
-  kernel::{
-    CellId, ConnectionData, DocumentId, ExecutionEvent, ExecutionId,
-    ExecutionMessage, ExecutionRequest, ExecutionState, KernelChannels,
-    KernelId, KernelInfo, KernelLaunchSpec, KernelState, LaunchConfig,
-    LaunchError, LocalKernel, LocalKernelManager, ManagerConfig, ManagerError,
-    StartupOutput,
-  },
-  platform::Platform,
-  wire::{
-    Channel, DELIMITER, Envelope, Frame, Header, JsonFrame, JsonObject,
-    MessageType, ParentHeader, SignatureScheme, WireError, WireProtocol,
-  },
-};
-
 use {
   chrono::{SecondsFormat, Utc},
   environment::Environment,
@@ -64,6 +45,25 @@ use {
     DealerRecvHalf, DealerSendHalf, DealerSocket, ReqSocket, Socket,
     SocketEvent, SocketOptions, SocketRecv, SocketSend, SubSocket, ZmqError,
     ZmqMessage, util::PeerIdentity,
+  },
+};
+
+pub use {
+  channel::{
+    ChannelDriver, ChannelMessage, DriverConfig, HeartbeatDriver,
+    TransportError, TransportEvent,
+  },
+  kernel::{
+    CellId, ConnectionData, DocumentId, ExecutionEvent, ExecutionId,
+    ExecutionMessage, ExecutionRequest, ExecutionState, KernelChannels,
+    KernelId, KernelInfo, KernelLaunchSpec, KernelState, LaunchConfig,
+    LaunchError, LocalKernel, LocalKernelManager, ManagerConfig, ManagerError,
+    StartupOutput,
+  },
+  platform::Platform,
+  wire::{
+    Channel, DELIMITER, Envelope, Frame, Header, JsonFrame, JsonObject,
+    MessageType, ParentHeader, SignatureScheme, WireError, WireProtocol,
   },
 };
 
