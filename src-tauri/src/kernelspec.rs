@@ -37,16 +37,13 @@ struct KernelJson {
   language: String,
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 struct KernelSpec {
   argv: Vec<String>,
   display_name: String,
   env: BTreeMap<String, String>,
-  kernel_file: PathBuf,
   language: String,
   name: String,
-  resource_dir: PathBuf,
   source: KernelSource,
 }
 
@@ -92,7 +89,6 @@ impl KernelSpecManager {
       argv: spec.argv,
       env: spec.env,
       language: spec.language,
-      resource_dir: Some(spec.resource_dir),
     })
   }
 }
@@ -175,12 +171,7 @@ fn load_specs(
         continue;
       }
 
-      match load_spec(
-        canonical_name.clone(),
-        root.source,
-        resource_dir,
-        kernel_file,
-      ) {
+      match load_spec(canonical_name.clone(), root.source, &kernel_file) {
         Ok(spec) => {
           names.insert(canonical_name);
           specs.push(spec);
@@ -200,10 +191,9 @@ fn load_specs(
 fn load_spec(
   name: String,
   source: KernelSource,
-  resource_dir: PathBuf,
-  kernel_file: PathBuf,
+  kernel_file: &Path,
 ) -> std::result::Result<KernelSpec, String> {
-  let bytes = fs::read(&kernel_file)
+  let bytes = fs::read(kernel_file)
     .map_err(|error| format!("failed to read kernel.json: {error}"))?;
   let json = serde_json::from_slice::<KernelJson>(&bytes)
     .map_err(|error| format!("invalid kernel.json: {error}"))?;
@@ -232,10 +222,8 @@ fn load_spec(
     argv: json.argv,
     display_name: json.display_name,
     env: json.env,
-    kernel_file,
     language: json.language,
     name,
-    resource_dir,
     source,
   })
 }
@@ -509,21 +497,14 @@ mod tests {
   #[test]
   fn private_spec_retains_launch_data() {
     let directory = tempfile::tempdir().unwrap();
-    let resource_dir = directory.path().join("foo");
-    let kernel_file = resource_dir.join("kernel.json");
+    let kernel_file = directory.path().join("foo/kernel.json");
     write_spec(directory.path(), "foo", &valid_spec("Foo", "foo"));
 
-    let spec = load_spec(
-      "foo".into(),
-      KernelSource::User,
-      resource_dir.clone(),
-      kernel_file.clone(),
-    )
-    .unwrap();
+    let spec =
+      load_spec("foo".into(), KernelSource::User, &kernel_file).unwrap();
 
     assert_eq!(spec.argv, ["foo", "--connection", CONNECTION_FILE]);
     assert_eq!(spec.env["FOO"], "bar");
-    assert_eq!(spec.resource_dir, resource_dir);
-    assert_eq!(spec.kernel_file, kernel_file);
+    assert_eq!(spec.language, "foo");
   }
 }
