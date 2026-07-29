@@ -2525,7 +2525,12 @@ mod tests {
       )],
     ));
 
-    manager.wait_for_start(id).await.unwrap();
+    let result = manager.wait_for_start(id).await;
+    assert!(
+      result.is_ok(),
+      "{result:?}: {:?}",
+      manager.shutdown(id).await
+    );
     fs::write(&exit_file, "bar").unwrap();
     wait_for_state(&manager, id, KernelState::Exited).await;
     manager.shutdown(id).await.unwrap();
