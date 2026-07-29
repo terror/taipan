@@ -7,3 +7,7 @@ export function discoverKernelspecs(
 ): Promise<KernelDiscovery> {
   return invoke<KernelDiscovery>('discover_kernelspecs', { metadata });
 }
+
+export function selectKernel(name: string | null): Promise<void> {
+  return invoke('select_kernel', { name });
+}
