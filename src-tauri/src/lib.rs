@@ -1,6 +1,6 @@
 use {
   error::Error,
-  kernel::LocalKernel,
+  kernel::{KernelId, LocalKernelManager},
   notebook::Notebook,
   serde::{Deserialize, Serialize, Serializer, de},
   serde_json::{Map, Value},
@@ -10,7 +10,12 @@ use {
     fs::{self, File},
     io::{self, BufReader, BufWriter, Write},
     path::{Path, PathBuf},
+    sync::{
+      Arc,
+      atomic::{AtomicBool, Ordering},
+    },
   },
+  tauri::Manager,
   tempfile::Builder,
   thiserror::Error,
   typeshare::{U53, typeshare},
@@ -26,7 +31,10 @@ pub mod wire;
 type Result<T = (), E = Error> = std::result::Result<T, E>;
 
 #[derive(Default)]
-struct KernelState(tokio::sync::Mutex<Option<LocalKernel>>);
+struct KernelState {
+  current: Option<KernelId>,
+  manager: LocalKernelManager,
+}
 
 #[tauri::command]
 async fn open_notebook(path: PathBuf) -> Result<Notebook> {
@@ -45,12 +53,16 @@ async fn save_notebook(path: PathBuf, notebook: Notebook) -> Result {
 #[tauri::command]
 async fn select_kernel(
   name: Option<String>,
-  state: tauri::State<'_, KernelState>,
+  state: tauri::State<'_, tokio::sync::Mutex<KernelState>>,
 ) -> std::result::Result<(), String> {
-  let mut current = state.0.lock().await;
+  let mut state = state.inner().lock().await;
 
-  if let Some(kernel) = current.take() {
-    kernel.shutdown().await.map_err(|error| error.to_string())?;
+  if let Some(id) = state.current.take() {
+    state
+      .manager
+      .shutdown(id)
+      .await
+      .map_err(|error| error.to_string())?;
   }
 
   let Some(name) = name else {
@@ -62,11 +74,14 @@ async fn select_kernel(
   })
   .await
   .map_err(|error| error.to_string())??;
-  let kernel = LocalKernel::launch(spec)
+  let id = state.manager.start(spec);
+  state
+    .manager
+    .wait_for_start(id)
     .await
     .map_err(|error| error.to_string())?;
 
-  current.replace(kernel);
+  state.current = Some(id);
 
   Ok(())
 }
@@ -87,8 +102,9 @@ async fn discover_kernelspecs(
 /// Panics if the Tauri application cannot run.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  tauri::Builder::default()
-    .manage(KernelState::default())
+  let exiting = Arc::new(AtomicBool::new(false));
+  let app = tauri::Builder::default()
+    .manage(tokio::sync::Mutex::new(KernelState::default()))
     .plugin(tauri_plugin_dialog::init())
     .invoke_handler(tauri::generate_handler![
       discover_kernelspecs,
@@ -96,6 +112,24 @@ pub fn run() {
       save_notebook,
       select_kernel
     ])
-    .run(tauri::generate_context!())
-    .expect("error while running Taipan");
+    .build(tauri::generate_context!())
+    .expect("error while building Taipan");
+
+  app.run(move |app, event| {
+    if let tauri::RunEvent::ExitRequested { api, code, .. } = event
+      && !exiting.swap(true, Ordering::Relaxed)
+    {
+      api.prevent_exit();
+
+      let app = app.clone();
+      tauri::async_runtime::spawn(async move {
+        {
+          let state = app.state::<tokio::sync::Mutex<KernelState>>();
+          state.lock().await.manager.shutdown_all().await;
+        }
+
+        app.exit(code.unwrap_or_default());
+      });
+    }
+  });
 }

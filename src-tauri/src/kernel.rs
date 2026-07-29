@@ -10,7 +10,7 @@ use {
     },
   },
   chrono::{SecondsFormat, Utc},
-  serde::Serialize,
+  serde::{Deserialize, Serialize},
   serde_json::Value,
   std::{
     collections::{BTreeMap, BTreeSet},
@@ -20,7 +20,7 @@ use {
     io::{self, Write},
     net::{Ipv4Addr, TcpListener},
     path::{Path, PathBuf},
-    process::Stdio,
+    process::{ExitStatus, Stdio},
     sync::{Arc, Mutex},
     time::Duration,
   },
@@ -29,7 +29,7 @@ use {
   tokio::{
     io::{AsyncRead, AsyncReadExt},
     process::{Child, Command},
-    sync::mpsc,
+    sync::{mpsc, watch},
     task::JoinHandle,
     time::{self, Instant},
   },
@@ -56,7 +56,7 @@ use windows_sys::Win32::{
 
 const CONNECTION_FILE: &str = "{connection_file}";
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ConnectionData {
   pub control_port: u16,
   pub hb_port: u16,
@@ -137,6 +137,7 @@ impl KernelLaunchSpec {
 
 #[derive(Clone, Debug)]
 pub struct LaunchConfig {
+  pub heartbeat_timeout: Duration,
   pub max_startup_output_bytes: usize,
   pub runtime_dir: Option<PathBuf>,
   pub startup_timeout: Duration,
@@ -145,6 +146,7 @@ pub struct LaunchConfig {
 impl Default for LaunchConfig {
   fn default() -> Self {
     Self {
+      heartbeat_timeout: Duration::from_secs(3),
       max_startup_output_bytes: 16 * 1024,
       runtime_dir: None,
       startup_timeout: Duration::from_secs(15),
@@ -179,6 +181,200 @@ pub enum LaunchError {
   Transport(#[source] TransportError),
 }
 
+#[derive(
+  Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
+)]
+#[serde(transparent)]
+pub struct KernelId(Uuid);
+
+impl fmt::Display for KernelId {
+  fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    self.0.fmt(formatter)
+  }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KernelState {
+  Busy,
+  Exited,
+  Failed,
+  Idle,
+  Starting,
+  Stopping,
+  Unresponsive,
+}
+
+#[derive(Clone, Debug)]
+pub struct ManagerConfig {
+  pub heartbeat_interval: Duration,
+  pub launch: LaunchConfig,
+  pub process_poll_interval: Duration,
+  pub shutdown_timeout: Duration,
+  pub terminate_timeout: Duration,
+}
+
+impl Default for ManagerConfig {
+  fn default() -> Self {
+    Self {
+      heartbeat_interval: Duration::from_secs(1),
+      launch: LaunchConfig::default(),
+      process_poll_interval: Duration::from_millis(50),
+      shutdown_timeout: Duration::from_secs(5),
+      terminate_timeout: Duration::from_secs(2),
+    }
+  }
+}
+
+#[derive(Debug, Error)]
+pub enum ManagerError {
+  #[error("kernel {0} failed to start")]
+  Failed(KernelId),
+  #[error("kernel {0} does not exist")]
+  NotFound(KernelId),
+  #[error("kernel supervision failed")]
+  Supervision(#[source] LaunchError),
+  #[error("kernel supervisor task failed")]
+  Task(#[source] tokio::task::JoinError),
+}
+
+pub struct LocalKernelManager {
+  config: ManagerConfig,
+  kernels: BTreeMap<KernelId, ManagedKernel>,
+}
+
+impl Default for LocalKernelManager {
+  fn default() -> Self {
+    Self::new(ManagerConfig::default())
+  }
+}
+
+impl LocalKernelManager {
+  #[must_use]
+  pub fn new(config: ManagerConfig) -> Self {
+    Self {
+      config,
+      kernels: BTreeMap::new(),
+    }
+  }
+
+  #[allow(clippy::missing_errors_doc)]
+  pub async fn shutdown(&mut self, id: KernelId) -> Result<(), ManagerError> {
+    let kernel = self
+      .kernels
+      .get_mut(&id)
+      .ok_or(ManagerError::NotFound(id))?;
+
+    let _ = kernel.commands.send(SupervisorCommand::Shutdown).await;
+
+    if let Some(task) = kernel.task.take() {
+      task
+        .await
+        .map_err(ManagerError::Task)?
+        .map_err(ManagerError::Supervision)?;
+    } else if *kernel.state.borrow() == KernelState::Failed {
+      return Err(ManagerError::Failed(id));
+    }
+
+    Ok(())
+  }
+
+  pub async fn shutdown_all(&mut self) {
+    let ids = self.kernels.keys().copied().collect::<Vec<_>>();
+
+    for id in ids {
+      let _ = self.shutdown(id).await;
+    }
+  }
+
+  #[must_use]
+  pub fn start(&mut self, spec: KernelLaunchSpec) -> KernelId {
+    let id = KernelId(Uuid::new_v4());
+    let (commands, command_receiver) = mpsc::channel(1);
+    let (state, state_receiver) = watch::channel(KernelState::Starting);
+    let config = self.config.clone();
+    let task =
+      tokio::spawn(run_supervisor(spec, config, state, command_receiver));
+
+    self.kernels.insert(
+      id,
+      ManagedKernel {
+        commands,
+        state: state_receiver,
+        task: Some(task),
+      },
+    );
+
+    id
+  }
+
+  #[allow(clippy::missing_errors_doc)]
+  pub fn state(&self, id: KernelId) -> Result<KernelState, ManagerError> {
+    self
+      .kernels
+      .get(&id)
+      .map(|kernel| *kernel.state.borrow())
+      .ok_or(ManagerError::NotFound(id))
+  }
+
+  #[allow(clippy::missing_errors_doc)]
+  pub async fn wait_for_start(
+    &self,
+    id: KernelId,
+  ) -> Result<KernelState, ManagerError> {
+    let mut state = self
+      .kernels
+      .get(&id)
+      .map(|kernel| kernel.state.clone())
+      .ok_or(ManagerError::NotFound(id))?;
+
+    loop {
+      let current = *state.borrow_and_update();
+
+      match current {
+        KernelState::Starting => {
+          if state.changed().await.is_err() {
+            return Err(ManagerError::Failed(id));
+          }
+        }
+        KernelState::Busy | KernelState::Idle | KernelState::Unresponsive => {
+          return Ok(current);
+        }
+        KernelState::Exited | KernelState::Failed | KernelState::Stopping => {
+          return Err(ManagerError::Failed(id));
+        }
+      }
+    }
+  }
+}
+
+impl Drop for LocalKernelManager {
+  fn drop(&mut self) {
+    for kernel in self.kernels.values_mut() {
+      let _ = kernel.commands.try_send(SupervisorCommand::Shutdown);
+    }
+  }
+}
+
+struct ManagedKernel {
+  commands: mpsc::Sender<SupervisorCommand>,
+  state: watch::Receiver<KernelState>,
+  task: Option<JoinHandle<Result<(), LaunchError>>>,
+}
+
+#[derive(Clone, Copy)]
+enum SupervisorCommand {
+  Shutdown,
+}
+
+#[derive(Clone, Copy)]
+enum SupervisorEvent {
+  Continue,
+  Exited,
+  Failed,
+  Shutdown,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct KernelInfo {
   pub banner: String,
@@ -202,6 +398,14 @@ pub struct KernelChannels {
 }
 
 impl KernelChannels {
+  fn cancel(&self) {
+    self.control.cancel();
+    self.heartbeat.cancel();
+    self.iopub.cancel();
+    self.shell.cancel();
+    self.stdin.cancel();
+  }
+
   async fn connect(
     connection: &ConnectionData,
     protocol: Arc<WireProtocol>,
@@ -269,11 +473,19 @@ impl KernelChannels {
       stdin_events: _,
     } = self;
 
-    let _ = control.shutdown().await;
-    let _ = heartbeat.shutdown().await;
-    let _ = iopub.shutdown().await;
-    let _ = shell.shutdown().await;
-    let _ = stdin.shutdown().await;
+    control.cancel();
+    heartbeat.cancel();
+    iopub.cancel();
+    shell.cancel();
+    stdin.cancel();
+
+    let _ = tokio::join!(
+      control.shutdown(),
+      heartbeat.shutdown(),
+      iopub.shutdown(),
+      shell.shutdown(),
+      stdin.shutdown(),
+    );
   }
 }
 
@@ -281,6 +493,7 @@ pub struct LocalKernel {
   pub channels: Option<KernelChannels>,
   info: KernelInfo,
   process: Option<KernelProcess>,
+  session: String,
 }
 
 impl LocalKernel {
@@ -310,6 +523,12 @@ impl LocalKernel {
     let base = sanitized_environment(&inherited);
     let mut environment = expand_environment(&base, &spec.env)?;
 
+    #[cfg(test)]
+    environment.insert(
+      "TAIPAN_TEST_CONNECTION_FILE".into(),
+      connection_file.path().as_os_str().into(),
+    );
+
     if spec.language.to_ascii_lowercase().starts_with("python") {
       environment.remove(OsStr::new("PYTHONEXECUTABLE"));
     }
@@ -334,6 +553,7 @@ impl LocalKernel {
     let session = Uuid::new_v4().to_string();
     let driver_config = DriverConfig {
       client_identity: session.as_bytes().to_vec(),
+      heartbeat_timeout: config.heartbeat_timeout,
       ..DriverConfig::default()
     };
     drop(reservations);
@@ -407,31 +627,351 @@ impl LocalKernel {
       channels: Some(channels),
       info,
       process: Some(process),
+      session,
     })
   }
 
   #[allow(clippy::missing_errors_doc)]
   pub async fn shutdown(mut self) -> Result<(), LaunchError> {
-    if let Some(channels) = self.channels.take() {
-      channels.shutdown().await;
-    }
-
-    if let Some(mut process) = self.process.take() {
-      process.stop().await.map_err(LaunchError::Stop)?;
-    }
-
-    Ok(())
+    shutdown_kernel(
+      &mut self,
+      Duration::from_secs(5),
+      Duration::from_secs(2),
+      Duration::from_millis(50),
+    )
+    .await
   }
 }
 
 impl Drop for LocalKernel {
   fn drop(&mut self) {
     if let Some(channels) = &self.channels {
-      channels.control.cancel();
-      channels.heartbeat.cancel();
-      channels.iopub.cancel();
-      channels.shell.cancel();
-      channels.stdin.cancel();
+      channels.cancel();
+    }
+  }
+}
+
+async fn finish_kernel(kernel: &mut LocalKernel) -> Result<(), LaunchError> {
+  if let Some(channels) = kernel.channels.take() {
+    channels.shutdown().await;
+  }
+
+  if let Some(mut process) = kernel.process.take() {
+    process.finish().await.map_err(LaunchError::Stop)?;
+  }
+
+  Ok(())
+}
+
+fn message(msg_type: &str, session: &str, content: JsonObject) -> Envelope {
+  Envelope {
+    buffers: Vec::new(),
+    content,
+    header: Header {
+      date: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
+      extra: JsonObject::new(),
+      msg_id: Uuid::new_v4().to_string(),
+      msg_type: MessageType::from(msg_type),
+      session: session.into(),
+      subshell_id: None,
+      username: "taipan".into(),
+      version: "5.5".into(),
+    },
+    identities: Vec::new(),
+    metadata: JsonObject::new(),
+    parent_header: ParentHeader::Empty,
+  }
+}
+
+async fn run_supervisor(
+  spec: KernelLaunchSpec,
+  config: ManagerConfig,
+  state: watch::Sender<KernelState>,
+  commands: mpsc::Receiver<SupervisorCommand>,
+) -> Result<(), LaunchError> {
+  let kernel =
+    LocalKernel::launch_with_config(spec, config.launch.clone()).await;
+  let kernel = match kernel {
+    Ok(kernel) => kernel,
+    Err(error) => {
+      state.send_replace(KernelState::Failed);
+      return Err(error);
+    }
+  };
+
+  supervise_kernel(kernel, config, state, commands).await
+}
+
+fn send_shutdown(kernel: &LocalKernel) -> Result<String, TransportError> {
+  let mut content = JsonObject::new();
+  content.insert("restart".into(), Value::Bool(false));
+  let request = message("shutdown_request", &kernel.session, content);
+  let msg_id = request.header.msg_id.clone();
+
+  kernel
+    .channels
+    .as_ref()
+    .ok_or(TransportError::QueueClosed)?
+    .control
+    .try_send(&request)?;
+
+  Ok(msg_id)
+}
+
+async fn shutdown_kernel(
+  kernel: &mut LocalKernel,
+  shutdown_timeout: Duration,
+  terminate_timeout: Duration,
+  process_poll_interval: Duration,
+) -> Result<(), LaunchError> {
+  let request = send_shutdown(kernel).ok();
+  let deadline = Instant::now() + shutdown_timeout;
+  let mut process_interval = time::interval(process_poll_interval);
+  let mut exited = false;
+  let mut shutdown_replied = false;
+
+  while Instant::now() < deadline {
+    let Some(process) = kernel.process.as_mut() else {
+      exited = true;
+      break;
+    };
+
+    if process
+      .child
+      .try_wait()
+      .map_err(LaunchError::Stop)?
+      .is_some()
+    {
+      exited = true;
+      break;
+    }
+
+    let control_events = &mut kernel
+      .channels
+      .as_mut()
+      .ok_or_else(|| {
+        LaunchError::Stop(io::Error::other("channels unavailable"))
+      })?
+      .control_events;
+
+    tokio::select! {
+      _ = process_interval.tick() => {}
+      event = control_events.recv() => {
+        if let (Some(request), Some(TransportEvent::Message(reply))) =
+          (&request, event)
+          && reply.envelope.header.msg_type == MessageType::from("shutdown_reply")
+          && matches!(
+            &reply.envelope.parent_header,
+            ParentHeader::Header(parent) if parent.msg_id == *request
+          )
+          && reply.envelope.content.get("restart").and_then(Value::as_bool)
+            == Some(false)
+        {
+          shutdown_replied = true;
+        }
+      }
+    }
+  }
+
+  if !exited
+    && shutdown_replied
+    && let Some(process) = kernel.process.as_mut()
+  {
+    exited = process
+      .child
+      .try_wait()
+      .map_err(LaunchError::Stop)?
+      .is_some();
+  }
+
+  if !exited && let Some(process) = kernel.process.as_mut() {
+    process
+      .terminate(terminate_timeout)
+      .await
+      .map_err(LaunchError::Stop)?;
+  }
+
+  finish_kernel(kernel).await
+}
+
+async fn supervise_kernel(
+  mut kernel: LocalKernel,
+  config: ManagerConfig,
+  state: watch::Sender<KernelState>,
+  mut commands: mpsc::Receiver<SupervisorCommand>,
+) -> Result<(), LaunchError> {
+  state.send_replace(KernelState::Idle);
+
+  let mut execution_state = KernelState::Idle;
+  let mut heartbeat = time::interval(config.heartbeat_interval);
+  heartbeat.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
+  let mut heartbeat_open = true;
+  let mut heartbeat_pending = None;
+  let mut process = time::interval(config.process_poll_interval);
+  process.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
+
+  loop {
+    let event = {
+      let channels = kernel
+        .channels
+        .as_mut()
+        .expect("launched kernel must own channels");
+      let child = &mut kernel
+        .process
+        .as_mut()
+        .expect("launched kernel must own a process")
+        .child;
+
+      tokio::select! {
+        command = commands.recv() => {
+          match command {
+            Some(SupervisorCommand::Shutdown) | None => SupervisorEvent::Shutdown,
+          }
+        }
+        _ = heartbeat.tick(), if heartbeat_open && heartbeat_pending.is_none() => {
+          let ping = Uuid::new_v4().as_bytes().to_vec();
+
+          if channels.heartbeat.try_ping(ping.clone()).is_ok() {
+            heartbeat_pending = Some(ping);
+          } else {
+            heartbeat_open = false;
+            state.send_replace(KernelState::Unresponsive);
+          }
+
+          SupervisorEvent::Continue
+        }
+        event = channels.heartbeat_events.recv(), if heartbeat_open => {
+          match event {
+            Some(TransportEvent::Heartbeat(bytes))
+              if heartbeat_pending.as_ref() == Some(&bytes) =>
+            {
+              heartbeat_pending = None;
+              state.send_replace(execution_state);
+            }
+            Some(
+              TransportEvent::Heartbeat(_)
+              | TransportEvent::Error { .. }
+              | TransportEvent::Message(_),
+            )
+            | None => {
+              heartbeat_open = false;
+              state.send_replace(KernelState::Unresponsive);
+            }
+          }
+
+          SupervisorEvent::Continue
+        }
+        event = channels.iopub_events.recv() => {
+          match event {
+            Some(TransportEvent::Message(message))
+              if message.envelope.header.msg_type == MessageType::from("status") =>
+            {
+              execution_state = match message
+                .envelope
+                .content
+                .get("execution_state")
+                .and_then(Value::as_str)
+              {
+                Some("busy") => KernelState::Busy,
+                Some("idle") => KernelState::Idle,
+                _ => execution_state,
+              };
+
+              if heartbeat_open {
+                state.send_replace(execution_state);
+              }
+
+              SupervisorEvent::Continue
+            }
+            Some(TransportEvent::Message(_)) => SupervisorEvent::Continue,
+            Some(TransportEvent::Error { .. } | TransportEvent::Heartbeat(_))
+            | None => SupervisorEvent::Failed,
+          }
+        }
+        event = channels.control_events.recv() => match event {
+          Some(TransportEvent::Message(_)) => SupervisorEvent::Continue,
+          Some(TransportEvent::Error { .. } | TransportEvent::Heartbeat(_))
+          | None => SupervisorEvent::Failed,
+        },
+        event = channels.shell_events.recv() => match event {
+          Some(TransportEvent::Message(_)) => SupervisorEvent::Continue,
+          Some(TransportEvent::Error { .. } | TransportEvent::Heartbeat(_))
+          | None => SupervisorEvent::Failed,
+        },
+        event = channels.stdin_events.recv() => match event {
+          Some(TransportEvent::Message(_)) => SupervisorEvent::Continue,
+          Some(TransportEvent::Error { .. } | TransportEvent::Heartbeat(_))
+          | None => SupervisorEvent::Failed,
+        },
+        _ = process.tick() => match child.try_wait() {
+          Ok(Some(_)) => SupervisorEvent::Exited,
+          Ok(None) => SupervisorEvent::Continue,
+          Err(_) => SupervisorEvent::Failed,
+        },
+      }
+    };
+
+    match event {
+      SupervisorEvent::Continue => {}
+      SupervisorEvent::Exited => {
+        let result = finish_kernel(&mut kernel).await;
+        state.send_replace(if result.is_ok() {
+          KernelState::Exited
+        } else {
+          KernelState::Failed
+        });
+        return result;
+      }
+      SupervisorEvent::Failed => {
+        let exited = if let Some(process) = kernel.process.as_mut() {
+          matches!(
+            time::timeout(Duration::from_millis(100), process.child.wait())
+              .await,
+            Ok(Ok(_))
+          )
+        } else {
+          true
+        };
+
+        if exited {
+          let result = finish_kernel(&mut kernel).await;
+          state.send_replace(if result.is_ok() {
+            KernelState::Exited
+          } else {
+            KernelState::Failed
+          });
+          return result;
+        }
+
+        state.send_replace(KernelState::Failed);
+        let cleanup = shutdown_kernel(
+          &mut kernel,
+          Duration::ZERO,
+          config.terminate_timeout,
+          config.process_poll_interval,
+        )
+        .await;
+        cleanup?;
+        return Err(LaunchError::Stop(io::Error::other(
+          "kernel channel failed",
+        )));
+      }
+      SupervisorEvent::Shutdown => {
+        state.send_replace(KernelState::Stopping);
+        let result = shutdown_kernel(
+          &mut kernel,
+          config.shutdown_timeout,
+          config.terminate_timeout,
+          config.process_poll_interval,
+        )
+        .await;
+        state.send_replace(if result.is_ok() {
+          KernelState::Exited
+        } else {
+          KernelState::Failed
+        });
+        return result;
+      }
     }
   }
 }
@@ -470,7 +1010,7 @@ impl fmt::Display for StartupOutput {
 struct KernelProcess {
   capture: Arc<Mutex<StartupCapture>>,
   child: Child,
-  connection_file: NamedTempFile,
+  connection_file: Option<NamedTempFile>,
   #[cfg(unix)]
   process_group: Option<u32>,
   readers: Vec<JoinHandle<io::Result<()>>>,
@@ -480,6 +1020,24 @@ struct KernelProcess {
 }
 
 impl KernelProcess {
+  async fn finish(&mut self) -> io::Result<()> {
+    for mut reader in self.readers.drain(..) {
+      if time::timeout(Duration::from_millis(100), &mut reader)
+        .await
+        .is_err()
+      {
+        reader.abort();
+        let _ = reader.await;
+      }
+    }
+
+    if let Some(connection_file) = self.connection_file.take() {
+      connection_file.close()?;
+    }
+
+    Ok(())
+  }
+
   fn spawn(
     argv: &[String],
     environment: &BTreeMap<OsString, OsString>,
@@ -519,7 +1077,7 @@ impl KernelProcess {
     Ok(Self {
       capture,
       child,
-      connection_file,
+      connection_file: Some(connection_file),
       #[cfg(unix)]
       process_group,
       readers,
@@ -553,6 +1111,30 @@ impl KernelProcess {
     }
   }
 
+  fn start_terminate(&mut self) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+      let Some(process_group) = self.process_group else {
+        return Ok(());
+      };
+
+      match killpg(Pid::from_raw(process_group.cast_signed()), Signal::SIGTERM)
+      {
+        Ok(()) | Err(Errno::ESRCH) => Ok(()),
+        Err(error) => Err(io::Error::from_raw_os_error(error as i32)),
+      }
+    }
+
+    #[cfg(not(unix))]
+    {
+      #[cfg(windows)]
+      return self.windows_job.terminate();
+
+      #[cfg(not(windows))]
+      self.child.start_kill()
+    }
+  }
+
   fn startup_output(&self) -> StartupOutput {
     self.capture.lock().map_or_else(
       |_| StartupOutput {
@@ -565,29 +1147,41 @@ impl KernelProcess {
   }
 
   async fn stop(&mut self) -> io::Result<()> {
-    let kill = self.start_kill();
+    self.start_kill()?;
     let wait = time::timeout(Duration::from_secs(3), self.child.wait()).await;
 
-    for mut reader in self.readers.drain(..) {
-      if time::timeout(Duration::from_millis(100), &mut reader)
-        .await
-        .is_err()
-      {
-        reader.abort();
-        let _ = reader.await;
-      }
-    }
-
-    kill?;
-
     match wait {
-      Ok(Ok(_)) => Ok(()),
+      Ok(Ok(_)) => self.finish().await,
       Ok(Err(error)) => Err(error),
       Err(_) => Err(io::Error::new(
         io::ErrorKind::TimedOut,
         "kernel did not exit after termination",
       )),
     }
+  }
+
+  async fn terminate(
+    &mut self,
+    terminate_timeout: Duration,
+  ) -> io::Result<ExitStatus> {
+    self.start_terminate()?;
+
+    if let Ok(status) =
+      time::timeout(terminate_timeout, self.child.wait()).await
+    {
+      return status;
+    }
+
+    self.start_kill()?;
+
+    time::timeout(Duration::from_secs(3), self.child.wait())
+      .await
+      .map_err(|_| {
+        io::Error::new(
+          io::ErrorKind::TimedOut,
+          "kernel did not exit after termination",
+        )
+      })?
   }
 }
 
@@ -598,8 +1192,6 @@ impl Drop for KernelProcess {
     for reader in &self.readers {
       reader.abort();
     }
-
-    let _ = self.connection_file.as_file();
   }
 }
 
@@ -1253,7 +1845,22 @@ impl Drop for WindowsJob {
 
 #[cfg(test)]
 mod tests {
-  use {super::*, std::fs};
+  use {
+    super::*,
+    std::{fs, process::Command as StdCommand},
+    zeromq::{
+      RepSocket, RouterSocket, Socket, SocketRecv, SocketSend, XPubSocket,
+      ZmqMessage,
+    },
+  };
+
+  #[derive(Clone, Copy, Eq, PartialEq)]
+  enum MockBehavior {
+    Exit,
+    Forced,
+    Graceful,
+    HeartbeatLoss,
+  }
 
   fn base_environment() -> BTreeMap<OsString, OsString> {
     [
@@ -1264,6 +1871,408 @@ mod tests {
     .into_iter()
     .map(|(name, value)| (name.into(), value.into()))
     .collect()
+  }
+
+  fn frames_to_message(frames: Vec<Vec<u8>>) -> ZmqMessage {
+    let mut frames = frames.into_iter();
+    let mut message = ZmqMessage::from(frames.next().unwrap());
+
+    for frame in frames {
+      message.push_back(frame.into());
+    }
+
+    message
+  }
+
+  fn manager_config(runtime_dir: &Path) -> ManagerConfig {
+    ManagerConfig {
+      heartbeat_interval: Duration::from_millis(20),
+      launch: LaunchConfig {
+        heartbeat_timeout: Duration::from_millis(200),
+        runtime_dir: Some(runtime_dir.into()),
+        startup_timeout: Duration::from_secs(3),
+        ..LaunchConfig::default()
+      },
+      process_poll_interval: Duration::from_millis(10),
+      shutdown_timeout: Duration::from_millis(100),
+      terminate_timeout: Duration::from_millis(100),
+    }
+  }
+
+  fn mock_envelope(
+    msg_type: &str,
+    content: &Value,
+    parent: Option<Header>,
+    identities: Vec<Vec<u8>>,
+  ) -> Envelope {
+    let mut envelope =
+      message(msg_type, "mock", content.as_object().unwrap().clone());
+    envelope.identities = identities;
+    envelope.parent_header =
+      parent.map_or(ParentHeader::Empty, ParentHeader::Header);
+    envelope
+  }
+
+  async fn mock_kernel(behavior: MockBehavior) {
+    let path = env::var_os("TAIPAN_TEST_CONNECTION_FILE").unwrap();
+    let connection = serde_json::from_slice::<ConnectionData>(
+      &fs::read(PathBuf::from(path)).unwrap(),
+    )
+    .unwrap();
+    let protocol = WireProtocol::new(
+      connection.key.as_bytes(),
+      &connection.signature_scheme,
+    )
+    .unwrap();
+    let mut control = RouterSocket::new();
+    let mut heartbeat = RepSocket::new();
+    let mut iopub = XPubSocket::new();
+    let mut shell = RouterSocket::new();
+    let mut stdin = RouterSocket::new();
+
+    control
+      .bind(&connection.endpoint(Channel::Control))
+      .await
+      .unwrap();
+    heartbeat
+      .bind(&connection.endpoint(Channel::Heartbeat))
+      .await
+      .unwrap();
+    iopub
+      .bind(&connection.endpoint(Channel::Iopub))
+      .await
+      .unwrap();
+    shell
+      .bind(&connection.endpoint(Channel::Shell))
+      .await
+      .unwrap();
+    stdin
+      .bind(&connection.endpoint(Channel::Stdin))
+      .await
+      .unwrap();
+
+    let _child = env::var_os("MOCK_CHILD_FILE").map(|path| {
+      let child = StdCommand::new("sleep").arg("60").spawn().unwrap();
+      fs::write(path, child.id().to_string()).unwrap();
+      child
+    });
+    let mut heartbeat_open = true;
+    let mut heartbeat_replies = 0;
+    let mut iopub_ready = false;
+    let mut shell_ready = false;
+
+    loop {
+      tokio::select! {
+        request = control.recv() => {
+          let request = protocol
+            .decode(&request.unwrap().into_vec().into_iter().map(|frame| frame.to_vec()).collect::<Vec<_>>())
+            .unwrap();
+
+          if request.header.msg_type == MessageType::from("shutdown_request")
+            && request.content.get("restart").and_then(Value::as_bool) == Some(false)
+          {
+            if let Some(path) = env::var_os("MOCK_SHUTDOWN_FILE") {
+              fs::write(path, "foo").unwrap();
+            }
+
+            if behavior == MockBehavior::Graceful {
+              let reply = mock_envelope(
+                "shutdown_reply",
+                &serde_json::json!({"restart": false, "status": "ok"}),
+                Some(request.header),
+                request.identities,
+              );
+              control
+                .send(frames_to_message(protocol.encode(&reply).unwrap()))
+                .await
+                .unwrap();
+
+              return;
+            }
+          }
+        }
+        request = heartbeat.recv(), if heartbeat_open => {
+          let request = request.unwrap();
+
+          if behavior == MockBehavior::HeartbeatLoss && heartbeat_replies > 0 {
+            heartbeat_open = false;
+          } else {
+            heartbeat.send(request).await.unwrap();
+            heartbeat_replies += 1;
+
+            if behavior == MockBehavior::Exit && iopub_ready && shell_ready {
+              time::sleep(Duration::from_millis(100)).await;
+              return;
+            }
+          }
+        }
+        subscription = iopub.recv() => {
+          subscription.unwrap();
+          let welcome = mock_envelope(
+            "iopub_welcome",
+            &serde_json::json!({"subscription": ""}),
+            None,
+            vec![b"iopub_welcome".to_vec()],
+          );
+          iopub
+            .send(frames_to_message(protocol.encode(&welcome).unwrap()))
+            .await
+            .unwrap();
+          iopub_ready = true;
+
+          if behavior == MockBehavior::Exit && heartbeat_replies > 0 && shell_ready {
+            time::sleep(Duration::from_millis(100)).await;
+            return;
+          }
+        }
+        request = shell.recv() => {
+          let request = protocol
+            .decode(&request.unwrap().into_vec().into_iter().map(|frame| frame.to_vec()).collect::<Vec<_>>())
+            .unwrap();
+
+          if request.header.msg_type == MessageType::from("kernel_info_request") {
+            let reply = mock_envelope(
+              "kernel_info_reply",
+              &serde_json::json!({
+                "banner": "foo",
+                "implementation": "foo",
+                "implementation_version": "1.0",
+                "language_info": {
+                  "file_extension": ".foo",
+                  "mimetype": "text/foo",
+                  "name": "foo",
+                  "version": "1.0"
+                },
+                "protocol_version": "5.5",
+                "status": "ok"
+              }),
+              Some(request.header),
+              request.identities,
+            );
+            shell
+              .send(frames_to_message(protocol.encode(&reply).unwrap()))
+              .await
+              .unwrap();
+            shell_ready = true;
+
+            if behavior == MockBehavior::Exit && heartbeat_replies > 0 && iopub_ready {
+              time::sleep(Duration::from_millis(100)).await;
+              return;
+            }
+          }
+        }
+        request = stdin.recv() => {
+          request.unwrap();
+        }
+      }
+    }
+  }
+
+  fn mock_spec(
+    behavior: MockBehavior,
+    environment: impl IntoIterator<Item = (String, String)>,
+  ) -> KernelLaunchSpec {
+    let behavior = match behavior {
+      MockBehavior::Exit => "exit",
+      MockBehavior::Forced => "forced",
+      MockBehavior::Graceful => "graceful",
+      MockBehavior::HeartbeatLoss => "heartbeat_loss",
+    };
+    let mut environment = environment.into_iter().collect::<BTreeMap<_, _>>();
+    environment.insert("TAIPAN_MOCK_KERNEL".into(), behavior.into());
+
+    KernelLaunchSpec::new(
+      vec![
+        env::current_exe().unwrap().to_string_lossy().into_owned(),
+        "--exact".into(),
+        "kernel::tests::mock_kernel_process".into(),
+        "--nocapture".into(),
+      ],
+      environment,
+      "foo",
+    )
+  }
+
+  async fn wait_for_state(
+    manager: &LocalKernelManager,
+    id: KernelId,
+    expected: KernelState,
+  ) {
+    time::timeout(Duration::from_secs(3), async {
+      loop {
+        if manager.state(id).unwrap() == expected {
+          return;
+        }
+
+        time::sleep(Duration::from_millis(10)).await;
+      }
+    })
+    .await
+    .unwrap();
+  }
+
+  #[test]
+  fn mock_kernel_process() {
+    let Ok(behavior) = env::var("TAIPAN_MOCK_KERNEL") else {
+      return;
+    };
+    let behavior = match behavior.as_str() {
+      "exit" => MockBehavior::Exit,
+      "forced" => MockBehavior::Forced,
+      "graceful" => MockBehavior::Graceful,
+      "heartbeat_loss" => MockBehavior::HeartbeatLoss,
+      _ => panic!("invalid mock behavior"),
+    };
+
+    tokio::runtime::Builder::new_current_thread()
+      .enable_all()
+      .build()
+      .unwrap()
+      .block_on(mock_kernel(behavior));
+  }
+
+  #[tokio::test]
+  async fn manager_confirms_process_exit() {
+    let runtime = tempfile::tempdir().unwrap();
+    let mut manager = LocalKernelManager::new(manager_config(runtime.path()));
+    let id = manager.start(mock_spec(MockBehavior::Exit, []));
+
+    manager.wait_for_start(id).await.unwrap();
+    wait_for_state(&manager, id, KernelState::Exited).await;
+    manager.shutdown(id).await.unwrap();
+
+    assert_eq!(fs::read_dir(runtime.path()).unwrap().count(), 0);
+  }
+
+  #[tokio::test]
+  async fn manager_drop_cleans_up() {
+    let directory = tempfile::tempdir().unwrap();
+    let marker = directory.path().join("foo");
+    let runtime = tempfile::tempdir().unwrap();
+    let mut manager = LocalKernelManager::new(manager_config(runtime.path()));
+    let id = manager.start(mock_spec(
+      MockBehavior::Graceful,
+      [("MOCK_SHUTDOWN_FILE".into(), marker.display().to_string())],
+    ));
+
+    manager.wait_for_start(id).await.unwrap();
+    drop(manager);
+
+    time::timeout(Duration::from_secs(3), async {
+      while !marker.exists()
+        || fs::read_dir(runtime.path()).unwrap().next().is_some()
+      {
+        time::sleep(Duration::from_millis(10)).await;
+      }
+    })
+    .await
+    .unwrap();
+  }
+
+  #[cfg(unix)]
+  #[tokio::test]
+  async fn manager_failed_startup_is_terminal() {
+    let runtime = tempfile::tempdir().unwrap();
+    let mut manager = LocalKernelManager::new(manager_config(runtime.path()));
+    let id = manager.start(KernelLaunchSpec::new(
+      vec!["/usr/bin/false".into()],
+      BTreeMap::new(),
+      "foo",
+    ));
+
+    assert!(matches!(
+      manager.wait_for_start(id).await,
+      Err(ManagerError::Failed(error_id)) if error_id == id
+    ));
+    assert_eq!(manager.state(id).unwrap(), KernelState::Failed);
+    assert!(matches!(
+      manager.shutdown(id).await,
+      Err(ManagerError::Supervision(LaunchError::Startup { .. }))
+    ));
+    assert_eq!(fs::read_dir(runtime.path()).unwrap().count(), 0);
+  }
+
+  #[tokio::test]
+  async fn manager_gracefully_shuts_down_once() {
+    let directory = tempfile::tempdir().unwrap();
+    let marker = directory.path().join("foo");
+    let runtime = tempfile::tempdir().unwrap();
+    let mut manager = LocalKernelManager::new(manager_config(runtime.path()));
+    let id = manager.start(mock_spec(
+      MockBehavior::Graceful,
+      [("MOCK_SHUTDOWN_FILE".into(), marker.display().to_string())],
+    ));
+
+    assert_eq!(manager.state(id).unwrap(), KernelState::Starting);
+    assert_eq!(manager.wait_for_start(id).await.unwrap(), KernelState::Idle);
+    manager.shutdown(id).await.unwrap();
+    manager.shutdown(id).await.unwrap();
+
+    assert_eq!(manager.state(id).unwrap(), KernelState::Exited);
+    assert!(marker.exists());
+    assert_eq!(fs::read_dir(runtime.path()).unwrap().count(), 0);
+  }
+
+  #[tokio::test]
+  async fn manager_marks_heartbeat_loss_unresponsive() {
+    let runtime = tempfile::tempdir().unwrap();
+    let mut manager = LocalKernelManager::new(manager_config(runtime.path()));
+    let id = manager.start(mock_spec(MockBehavior::HeartbeatLoss, []));
+
+    manager.wait_for_start(id).await.unwrap();
+    wait_for_state(&manager, id, KernelState::Unresponsive).await;
+    manager.shutdown(id).await.unwrap();
+
+    assert_eq!(manager.state(id).unwrap(), KernelState::Exited);
+    assert_eq!(fs::read_dir(runtime.path()).unwrap().count(), 0);
+  }
+
+  #[cfg(unix)]
+  #[tokio::test]
+  async fn manager_timeout_terminates_child_process() {
+    use nix::sys::signal::kill;
+
+    let directory = tempfile::tempdir().unwrap();
+    let child_file = directory.path().join("foo");
+    let shutdown_file = directory.path().join("bar");
+    let runtime = tempfile::tempdir().unwrap();
+    let mut manager = LocalKernelManager::new(manager_config(runtime.path()));
+    let id = manager.start(mock_spec(
+      MockBehavior::Forced,
+      [
+        ("MOCK_CHILD_FILE".into(), child_file.display().to_string()),
+        (
+          "MOCK_SHUTDOWN_FILE".into(),
+          shutdown_file.display().to_string(),
+        ),
+      ],
+    ));
+
+    manager.wait_for_start(id).await.unwrap();
+    time::timeout(Duration::from_secs(3), async {
+      while !child_file.exists() {
+        time::sleep(Duration::from_millis(10)).await;
+      }
+    })
+    .await
+    .unwrap();
+    let child = fs::read_to_string(&child_file)
+      .unwrap()
+      .parse::<i32>()
+      .unwrap();
+
+    manager.shutdown(id).await.unwrap();
+
+    time::timeout(Duration::from_secs(3), async {
+      while kill(Pid::from_raw(child), None).is_ok() {
+        time::sleep(Duration::from_millis(10)).await;
+      }
+    })
+    .await
+    .unwrap();
+    assert!(shutdown_file.exists());
+    assert_eq!(manager.state(id).unwrap(), KernelState::Exited);
+    assert_eq!(fs::read_dir(runtime.path()).unwrap().count(), 0);
   }
 
   #[test]
