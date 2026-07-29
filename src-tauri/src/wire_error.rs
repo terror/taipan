@@ -22,6 +22,4 @@ pub enum WireError {
     "message has {actual} frame(s) after the delimiter, expected at least 5"
   )]
   TooFewFrames { actual: usize },
-  #[error("unknown Jupyter channel `{0}`")]
-  UnknownChannel(String),
 }

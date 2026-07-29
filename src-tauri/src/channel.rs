@@ -61,7 +61,7 @@ impl ChannelDriver {
           cancelled,
         ))
       }
-      Channel::Control | Channel::Shell | Channel::Stdin => {
+      Channel::Control | Channel::Shell => {
         let mut socket = DealerSocket::with_options(config.socket_options()?);
 
         let monitor = socket.monitor();
@@ -752,65 +752,6 @@ mod tests {
   }
 
   #[tokio::test]
-  async fn cross_channel_stdin_uses_shell_identity() {
-    let mut shell_peer = RouterSocket::new();
-    let shell_endpoint = shell_peer.bind("tcp://127.0.0.1:0").await.unwrap();
-    let mut stdin_peer = RouterSocket::new();
-    let stdin_endpoint = stdin_peer.bind("tcp://127.0.0.1:0").await.unwrap();
-    let mut stdin_monitor = stdin_peer.monitor();
-    let config = DriverConfig::default();
-    let protocol = protocol();
-    let (shell, _shell_events) = ChannelDriver::connect(
-      Channel::Shell,
-      &shell_endpoint.to_string(),
-      protocol.clone(),
-      config.clone(),
-    )
-    .await
-    .unwrap();
-    let (stdin, mut stdin_events) = ChannelDriver::connect(
-      Channel::Stdin,
-      &stdin_endpoint.to_string(),
-      protocol.clone(),
-      config.clone(),
-    )
-    .await
-    .unwrap();
-
-    time::timeout(Duration::from_secs(2), async {
-      loop {
-        match stdin_monitor.next().await {
-          Some(SocketEvent::Accepted(_, _)) => break,
-          Some(_) => {}
-          None => panic!("stdin monitor closed before accepting the client"),
-        }
-      }
-    })
-    .await
-    .unwrap();
-
-    shell.try_send(&envelope()).unwrap();
-    let request = shell_peer.recv().await.unwrap();
-    assert_eq!(request.get(0).unwrap().as_ref(), config.client_identity);
-
-    let mut input_request = envelope();
-    input_request.identities.push(config.client_identity);
-    stdin_peer
-      .send(frames_to_message(protocol.encode(&input_request).unwrap()))
-      .await
-      .unwrap();
-
-    let TransportEvent::Message(message) = event(&mut stdin_events).await
-    else {
-      panic!("expected message event");
-    };
-    assert_eq!(message.channel, Channel::Stdin);
-
-    shell.shutdown().await.unwrap();
-    stdin.shutdown().await.unwrap();
-  }
-
-  #[tokio::test]
   async fn dealer_channels_round_trip_messages() {
     async fn case(channel: Channel) {
       let mut peer = RouterSocket::new();
@@ -852,7 +793,6 @@ mod tests {
 
     case(Channel::Control).await;
     case(Channel::Shell).await;
-    case(Channel::Stdin).await;
   }
 
   #[tokio::test]

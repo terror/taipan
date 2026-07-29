@@ -50,7 +50,6 @@ impl ConnectionData {
       Channel::Heartbeat => self.hb_port,
       Channel::Iopub => self.iopub_port,
       Channel::Shell => self.shell_port,
-      Channel::Stdin => self.stdin_port,
     };
 
     format!("{}://{}:{port}", self.transport, self.ip)
