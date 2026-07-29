@@ -1,12 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
 
 import type { KernelSelection } from './execution';
-import type { KernelDiscovery, Metadata } from './types';
+import type { KernelDiscovery } from './types';
 
-export function discoverKernelspecs(
-  metadata: Metadata
-): Promise<KernelDiscovery> {
-  return invoke<KernelDiscovery>('discover_kernelspecs', { metadata });
+export function discoverKernelspecs(): Promise<KernelDiscovery> {
+  return invoke<KernelDiscovery>('discover_kernelspecs');
 }
 
 export function selectKernel(

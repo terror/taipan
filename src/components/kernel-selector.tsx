@@ -1,11 +1,10 @@
 import type { KernelSelection } from '@/lib/execution';
 import { discoverKernelspecs, selectKernel } from '@/lib/kernelspec';
-import type { KernelDiscovery, Metadata } from '@/lib/types';
+import type { KernelDiscovery } from '@/lib/types';
 import { ChevronDown, Cpu } from 'lucide-react';
 import { useEffect, useEffectEvent, useState } from 'react';
 
 interface KernelSelectorProps {
-  metadata: Metadata;
   onSelection: (selection: KernelSelection | null) => void;
 }
 
@@ -13,7 +12,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function KernelSelector({ metadata, onSelection }: KernelSelectorProps) {
+export function KernelSelector({ onSelection }: KernelSelectorProps) {
   const [discovery, setDiscovery] = useState<KernelDiscovery | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLaunching, setIsLaunching] = useState(false);
@@ -38,18 +37,13 @@ export function KernelSelector({ metadata, onSelection }: KernelSelectorProps) {
   useEffect(() => {
     let active = true;
 
-    void discoverKernelspecs(metadata)
+    void discoverKernelspecs()
       .then((result) => {
         if (!active) {
           return;
         }
 
         setDiscovery(result);
-        setSelectedId(result.recommended_id ?? '');
-        const recommended = result.kernels.find(
-          (kernel) => kernel.id === result.recommended_id
-        );
-        void activateKernel(recommended?.name ?? null);
       })
       .catch((cause: unknown) => {
         if (active) {
@@ -60,7 +54,7 @@ export function KernelSelector({ metadata, onSelection }: KernelSelectorProps) {
     return () => {
       active = false;
     };
-  }, [metadata]);
+  }, []);
 
   async function select(selectedId: string) {
     const kernel = discovery?.kernels.find(
