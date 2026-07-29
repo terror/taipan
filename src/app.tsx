@@ -27,14 +27,6 @@ import {
   sourceText,
 } from '@/lib/notebook';
 import { confirm, open } from '@tauri-apps/plugin-dialog';
-import {
-  AlertCircle,
-  FileCode2,
-  FolderOpen,
-  LoaderCircle,
-  Play,
-  Save,
-} from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 function fileName(path: string): string {
@@ -286,8 +278,7 @@ export function App() {
                     type='button'
                     onClick={() => void chooseNotebook()}
                   >
-                    <FolderOpen className='size-3.5' aria-hidden='true' />
-                    <span className='hidden sm:inline'>Open</span>
+                    Open
                   </Button>
                   <Button
                     variant='outline'
@@ -296,10 +287,7 @@ export function App() {
                     onClick={() => void saveCurrentNotebook()}
                     disabled={!dirty || isSaving}
                   >
-                    <Save className='size-3.5' aria-hidden='true' />
-                    <span className='hidden sm:inline'>
-                      {isSaving ? 'Saving' : 'Save'}
-                    </span>
+                    {isSaving ? 'Saving' : 'Save'}
                   </Button>
                 </div>
               </div>
@@ -347,15 +335,7 @@ export function App() {
                                   )
                                 }
                               >
-                                {cellExecution ? (
-                                  <LoaderCircle
-                                    className='size-3 animate-spin'
-                                    aria-hidden='true'
-                                  />
-                                ) : (
-                                  <Play className='size-3' aria-hidden='true' />
-                                )}
-                                Run
+                                {cellExecution ? 'Running...' : 'Run'}
                               </Button>
                             </>
                           )}
@@ -407,13 +387,9 @@ export function App() {
 
               {error && (
                 <div
-                  className='mt-6 flex items-start gap-2 rounded-lg border border-zinc-300 bg-zinc-100 p-3 text-[12px] leading-5 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100'
+                  className='mt-6 rounded-lg border border-zinc-300 bg-zinc-100 p-3 text-[12px] leading-5 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100'
                   role='alert'
                 >
-                  <AlertCircle
-                    className='mt-0.5 size-4 shrink-0'
-                    aria-hidden='true'
-                  />
                   {error}
                 </div>
               )}
@@ -423,14 +399,7 @@ export function App() {
       ) : (
         <section className='grid min-h-0 flex-1 place-items-center bg-zinc-50 px-6 py-16 dark:bg-zinc-950'>
           <div className='w-full max-w-sm text-center'>
-            <div className='mx-auto flex size-14 items-center justify-center rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900'>
-              <FileCode2
-                className='size-6 text-zinc-500 dark:text-zinc-400'
-                strokeWidth={1.5}
-                aria-hidden='true'
-              />
-            </div>
-            <h2 className='mt-6 text-xl font-semibold tracking-[-0.025em]'>
+            <h2 className='text-xl font-semibold tracking-[-0.025em]'>
               Open a notebook
             </h2>
             <p className='mx-auto mt-2 max-w-xs text-[13px] leading-5 text-zinc-500 dark:text-zinc-400'>
@@ -443,18 +412,13 @@ export function App() {
               onClick={() => void chooseNotebook()}
               disabled={isOpening}
             >
-              <FolderOpen className='size-4' aria-hidden='true' />
               {isOpening ? 'Opening...' : 'Choose notebook'}
             </Button>
             {error && (
               <div
-                className='mt-6 flex items-start gap-2 rounded-lg border border-zinc-300 bg-zinc-100 p-3 text-left text-[12px] leading-5 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100'
+                className='mt-6 rounded-lg border border-zinc-300 bg-zinc-100 p-3 text-left text-[12px] leading-5 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100'
                 role='alert'
               >
-                <AlertCircle
-                  className='mt-0.5 size-4 shrink-0'
-                  aria-hidden='true'
-                />
                 {error}
               </div>
             )}
