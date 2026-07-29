@@ -1,27 +1,85 @@
+#[allow(unused_imports)]
 use {
+  channel::{
+    ChannelDriver, DriverConfig, HeartbeatDriver, TransportError,
+    TransportEvent,
+  },
+  chrono::{SecondsFormat, Utc},
   error::Error,
+  futures::{StreamExt, channel::mpsc as monitor},
+  hmac::{Hmac, KeyInit, Mac},
   kernel::{
     CellId, DocumentId, ExecutionId, ExecutionRequest, KernelId,
-    LocalKernelManager,
+    KernelLaunchSpec, KernelState, LocalKernelManager,
   },
-  notebook::Notebook,
+  kernelspec::{KernelDiscovery, KernelSpecManager},
+  notebook::{Metadata, Notebook},
   serde::{Deserialize, Serialize, Serializer, de},
   serde_json::{Map, Value},
+  sha1::Sha1,
+  sha2::{Sha224, Sha256, Sha384, Sha512},
   std::{
     collections::{BTreeMap, BTreeSet},
+    env,
     ffi::{OsStr, OsString},
+    fmt,
     fs::{self, File},
     io::{self, BufReader, BufWriter, Write},
+    net::{Ipv4Addr, TcpListener},
     path::{Path, PathBuf},
+    process::{ExitStatus, Stdio},
+    str::FromStr,
     sync::{
-      Arc,
+      Arc, Mutex,
       atomic::{AtomicBool, Ordering},
     },
+    time::Duration,
   },
   tauri::{Emitter, Manager},
-  tempfile::Builder,
+  tempfile::{Builder, NamedTempFile},
   thiserror::Error,
+  tokio::{
+    io::{AsyncRead, AsyncReadExt},
+    process::{Child, Command},
+    sync::{mpsc, oneshot, watch},
+    task::{JoinError, JoinHandle},
+    time::{self, Instant},
+  },
   typeshare::{U53, typeshare},
+  uuid::Uuid,
+  wire::{
+    Channel, DELIMITER, Envelope, Frame, Header, JsonObject, MessageType,
+    ParentHeader, WireError, WireProtocol,
+  },
+  zeromq::{
+    DealerRecvHalf, DealerSendHalf, DealerSocket, ReqSocket, Socket,
+    SocketEvent, SocketOptions, SocketRecv, SocketSend, SubSocket, ZmqError,
+    ZmqMessage, util::PeerIdentity,
+  },
+};
+
+#[cfg(unix)]
+use nix::{
+  errno::Errno,
+  sys::signal::{Signal, killpg},
+  unistd::Pid,
+};
+
+#[cfg(windows)]
+use windows_sys::Win32::{
+  Foundation::{CloseHandle, HANDLE},
+  System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JobObjectExtendedLimitInformation, SetInformationJobObject,
+    TerminateJobObject,
+  },
+};
+
+#[cfg(test)]
+use {
+  std::process::Command as StdCommand,
+  zeromq::{RepSocket, RouterSocket, XPubSocket},
 };
 
 pub mod channel;
@@ -42,13 +100,13 @@ struct ApplicationState {
 #[derive(Clone, Copy, Serialize)]
 struct KernelSelection {
   kernel_id: KernelId,
-  state: kernel::KernelState,
+  state: KernelState,
 }
 
 #[derive(Clone, Copy, Serialize)]
 struct KernelStatusEvent {
   kernel_id: KernelId,
-  state: kernel::KernelState,
+  state: KernelState,
 }
 
 #[tauri::command]
@@ -86,7 +144,7 @@ async fn select_kernel(
   };
 
   let spec = tauri::async_runtime::spawn_blocking(move || {
-    kernelspec::KernelSpecManager::launch_spec(&name)
+    KernelSpecManager::launch_spec(&name)
   })
   .await
   .map_err(|error| error.to_string())??;
@@ -162,7 +220,7 @@ async fn execute_cell(
 #[tauri::command]
 async fn discover_kernelspecs(
   metadata: notebook::Metadata,
-) -> Result<kernelspec::KernelDiscovery> {
+) -> Result<KernelDiscovery> {
   tauri::async_runtime::spawn_blocking(move || {
     kernelspec::KernelSpecManager::discover(&metadata)
   })

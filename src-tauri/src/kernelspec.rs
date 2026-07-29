@@ -1,7 +1,4 @@
-use {
-  super::*,
-  crate::{kernel::KernelLaunchSpec, notebook::Metadata},
-};
+use super::*;
 
 const CONNECTION_FILE: &str = "{connection_file}";
 
@@ -104,6 +101,7 @@ impl SearchEnvironment {
     let platform = Platform::Linux;
 
     let variables = std::env::vars_os().collect::<BTreeMap<_, _>>();
+
     let home = variables
       .get(OsStr::new(if platform == Platform::Windows {
         "USERPROFILE"
