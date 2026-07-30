@@ -131,8 +131,11 @@ pub struct WireProtocol {
   key: Vec<u8>,
 }
 
-#[allow(clippy::missing_errors_doc)]
 impl WireProtocol {
+  /// # Errors
+  ///
+  /// Returns an error if the frames are malformed, contain invalid JSON, or
+  /// fail signature verification.
   pub fn decode(&self, frames: &[Frame]) -> Result<Envelope, WireError> {
     let delimiter = frames
       .iter()
@@ -160,6 +163,9 @@ impl WireProtocol {
     })
   }
 
+  /// # Errors
+  ///
+  /// Returns an error if an envelope field cannot be serialized as JSON.
   pub fn encode(&self, envelope: &Envelope) -> Result<Vec<Frame>, WireError> {
     let header = serialize(&envelope.header, JsonFrame::Header)?;
     let parent_header =
